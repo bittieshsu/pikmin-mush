@@ -1,5 +1,6 @@
 export const ROTATION_TIME_ZONE = "Asia/Taipei";
-export const ROTATION_SWITCH_MINUTE = 7 * 60 + 30;
+export const ROTATION_SWITCH_MINUTES = [7 * 60 + 30, 19 * 60 + 30];
+export const ROTATION_SWITCH_MINUTE = ROTATION_SWITCH_MINUTES[0];
 export const ROTATION_EPOCH_DATE = "2026-07-22";
 
 // Five balanced days cover every configured non-Taiwan country pack exactly
@@ -47,16 +48,34 @@ function mod(value, divisor) {
 export function rotationWindow(now = Date.now()) {
   const taipei = new Date(now + TAIPEI_OFFSET_MS);
   const minute = taipei.getUTCHours() * 60 + taipei.getUTCMinutes();
-  const effective = new Date(taipei.getTime() -
-    (minute < ROTATION_SWITCH_MINUTE ? DAY_MS : 0));
-  const scheduleDate = effective.toISOString().slice(0, 10);
-  const nextLocalDate = new Date(`${scheduleDate}T00:00:00Z`);
-  nextLocalDate.setUTCDate(nextLocalDate.getUTCDate() + 1);
-  nextLocalDate.setUTCHours(7, 30, 0, 0);
+  const localDate = taipei.toISOString().slice(0, 10);
+  let effectiveDate = localDate;
+  let slot = "morning";
+  let slotIndex = 0;
+  let nextLocal = new Date(`${localDate}T19:30:00Z`);
+  if (minute < ROTATION_SWITCH_MINUTES[0]) {
+    const previous = new Date(`${localDate}T00:00:00Z`);
+    previous.setUTCDate(previous.getUTCDate() - 1);
+    effectiveDate = previous.toISOString().slice(0, 10);
+    slot = "evening";
+    slotIndex = 1;
+    nextLocal = new Date(`${localDate}T07:30:00Z`);
+  } else if (minute >= ROTATION_SWITCH_MINUTES[1]) {
+    slot = "evening";
+    slotIndex = 1;
+    nextLocal = new Date(`${localDate}T00:00:00Z`);
+    nextLocal.setUTCDate(nextLocal.getUTCDate() + 1);
+    nextLocal.setUTCHours(7, 30, 0, 0);
+  }
+  const slotOffset =
+    (dateOrdinal(effectiveDate) - dateOrdinal(ROTATION_EPOCH_DATE)) * 2 + slotIndex;
   return {
-    scheduleDate,
-    dayOffset: dateOrdinal(scheduleDate) - dateOrdinal(ROTATION_EPOCH_DATE),
-    nextSwitchAt: nextLocalDate.getTime() - TAIPEI_OFFSET_MS,
+    scheduleDate: `${effectiveDate}-${slot === "morning" ? "am" : "pm"}`,
+    localDate: effectiveDate,
+    slot,
+    slotOffset,
+    dayOffset: Math.floor(slotOffset / 2),
+    nextSwitchAt: nextLocal.getTime() - TAIPEI_OFFSET_MS,
   };
 }
 
@@ -68,8 +87,8 @@ export function planDailyRotation(agentIds, now = Date.now()) {
     throw new Error(`自動輪替最多支援 ${bundles.length} 個啟用 Agent`);
   }
   const window = rotationWindow(now);
-  const primaryDay = mod(window.dayOffset, ROTATION_DAYS.length);
-  const cycle = Math.floor(window.dayOffset / ROTATION_DAYS.length);
+  const primaryDay = mod(window.slotOffset, ROTATION_DAYS.length);
+  const cycle = Math.floor(window.slotOffset / ROTATION_DAYS.length);
   const selected = [];
   for (let offset = 0; selected.length < agents.length; offset += 1) {
     const routes = ROTATION_DAYS[mod(primaryDay + offset, ROTATION_DAYS.length)];
