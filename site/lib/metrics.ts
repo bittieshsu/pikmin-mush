@@ -1,8 +1,9 @@
 import { runtime } from "./cloud";
 
-export const REQUIRED_GAME_VERSION = "149.0";
+export const SUPPORTED_GAME_VERSIONS = ["149.0", "150.0"] as const;
+export const REQUIRED_GAME_VERSION = "150.0";
 export const MIN_AGENT_VERSION = "2.0.0";
-export const EXPECTED_MODULE_VERSION = "149.0";
+export const EXPECTED_MODULE_VERSION = "150.0";
 export const HEARTBEAT_SAMPLE_MS = 5 * 60_000;
 export const NO_DATA_WARN_STREAK = 12;
 export const NO_DATA_CRITICAL_STREAK = 30;
@@ -63,11 +64,11 @@ export function versionCompatibility(row: AgentHealthRow) {
   if (!versionAtLeast(agentVersion, MIN_AGENT_VERSION)) {
     reasons.push(`Agent ${agentVersion} 低於 ${MIN_AGENT_VERSION}`);
   }
-  if (gameVersion !== REQUIRED_GAME_VERSION) {
-    reasons.push(`遊戲 ${gameVersion}，需要 ${REQUIRED_GAME_VERSION}`);
+  if (!SUPPORTED_GAME_VERSIONS.includes(gameVersion as typeof SUPPORTED_GAME_VERSIONS[number])) {
+    reasons.push(`遊戲 ${gameVersion}，需要 ${SUPPORTED_GAME_VERSIONS.join(" 或 ")}`);
   }
-  if (moduleVersion !== EXPECTED_MODULE_VERSION) {
-    reasons.push(`模組 ${moduleVersion}，需要 ${EXPECTED_MODULE_VERSION}`);
+  if (moduleVersion !== gameVersion) {
+    reasons.push(`模組 ${moduleVersion}，需與遊戲 ${gameVersion} 相同`);
   }
   return {
     status: reasons.length ? "incompatible" as const : "compatible" as const,
@@ -75,8 +76,8 @@ export function versionCompatibility(row: AgentHealthRow) {
     reasons,
     required: {
       agent: `>=${MIN_AGENT_VERSION}`,
-      game: REQUIRED_GAME_VERSION,
-      module: EXPECTED_MODULE_VERSION,
+      game: SUPPORTED_GAME_VERSIONS.join(" 或 "),
+      module: "與遊戲版本相同",
     },
   };
 }
