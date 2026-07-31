@@ -47,7 +47,7 @@ function scanConfig(base: unknown, packs: string[]): ScanConfig {
   });
 }
 
-async function stopActiveJobs(now: number) {
+async function stopActiveJobs(now: number, slotLabel: string) {
   const db = runtime().DB;
   await db.batch([
     db.prepare(`UPDATE scan_targets SET status='cancelled', lease_agent_id='',
@@ -56,8 +56,8 @@ async function stopActiveJobs(now: number) {
         SELECT id FROM scan_jobs WHERE status IN ('queued','running','paused')
       )`).bind(now),
     db.prepare(`UPDATE scan_jobs SET status='cancelled', finished_at=?, updated_at=?,
-      message='每日 07:30 自動換區，舊工作已結束'
-      WHERE status IN ('queued','running','paused')`).bind(now, now),
+      message=? WHERE status IN ('queued','running','paused')`)
+      .bind(now, now, `${slotLabel} 自動換區，舊工作已結束`),
     db.prepare(`UPDATE scan_agents SET current_job_id=NULL, current_target_id=NULL,
       updated_at=? WHERE current_job_id IS NOT NULL`).bind(now),
   ]);
@@ -156,13 +156,14 @@ export async function ensureDailyRotation(now = Date.now()) {
     const config = scanConfig(previousConfig, selectedPacks);
     const { regions, targets } = buildScanPlan(config, null);
 
-    await stopActiveJobs(now);
+    const slotLabel = planned.slot === "morning" ? "每日 07:30" : "每日 19:30";
+    await stopActiveJobs(now, slotLabel);
     const created = await db.prepare(`INSERT INTO scan_jobs (
         status, config_json, plan_json, total_points, loop, message,
         created_at, updated_at
       ) VALUES ('queued', ?, ?, ?, 1, ?, ?, ?) RETURNING id`)
       .bind(JSON.stringify(config), JSON.stringify(targets), targets.length,
-        `每日輪替 ${planned.scheduleDate}：等待 Agent 接手`, now, now)
+        `${slotLabel} 輪替 ${planned.localDate}：等待 Agent 接手`, now, now)
       .first<{ id: number }>();
     const jobId = Number(created?.id ?? 0);
     if (!jobId) throw new Error("無法建立每日輪替工作");
@@ -179,7 +180,7 @@ export async function ensureDailyRotation(now = Date.now()) {
         assignments_json=?, message=?, updated_at=? WHERE schedule_date=?`)
       .bind(jobId, JSON.stringify(assignments), summary, Date.now(), planned.scheduleDate).run();
     await appendScanLog(jobId, "info",
-      `每日 07:30 自動換區：${summary}；共 ${regions.length} 城、${targets.length} 點`);
+      `${slotLabel} 自動換區：${summary}；共 ${regions.length} 城、${targets.length} 點`);
     return db.prepare("SELECT * FROM scan_rotation_runs WHERE schedule_date=?")
       .bind(planned.scheduleDate).first<RotationRunRow>();
   } catch (error) {
@@ -215,6 +216,6 @@ export async function rotationStatus(now = Date.now()) {
     status: run?.status ?? "pending",
     job_id: run?.job_id == null ? null : Number(run.job_id),
     assignments,
-    message: run?.message ?? "等待每日換區",
+    message: run?.message ?? "等待 07:30 / 19:30 換區",
   };
 }

@@ -18,7 +18,7 @@ Root Android 手機上的 Zygisk 模組從遊戲地圖資料取得蘑菇資訊�
 
 - 三台實體 Android Agent 可並行掃描；一般運作不依賴 Windows、USB、ADB、固定手機 IP 或同一區域網路。
 - 雲端以逐點 lease 分派座標，同一工作內的 Agent 不會掃到相同 target；Agent 離線、停用或 lease 逾時後，座標會重新排隊。
-- 每日 `07:30 Asia/Taipei` 自動換區。現有 5 天輪替表涵蓋 67 個非台灣國家／區域包、427 個主要城市配置，三條當日路線互斥且各為 28–29 城。
+- 每日 `07:30`、`19:30 Asia/Taipei` 自動換區。現有 5 時段輪替表涵蓋 67 個非台灣國家／區域包、427 個主要城市配置，三條當期路線互斥、各為 28–29 城，且不會沿用前一時段的國家包。
 - 公開 API 與地圖已部署於 Codex Sites，資料存放於 D1；Windows 掃描器只保留作相容與維修用途。
 - 正式資料只收錄等級 2–4 的蘑菇。等級 1 會在手機與雲端擷取管線中略過。
 
@@ -72,7 +72,7 @@ Root Android 手機上的 Zygisk 模組從遊戲地圖資料取得蘑菇資訊�
 
 輪替規則位於 `site/lib/rotation-plan.mjs`：
 
-- 以台北時間每日 07:30 為換日界線，不需要 PC cron 常駐。
+- 以台北時間每日 07:30、19:30 為換區界線，不需要 PC cron 常駐；每次都會結束舊工作並改派與前一時段不重複的國家包。
 - 台灣不在國家城市包與每日輪替目錄中，後續自動或手動國家包工作都不會建立台灣城市 target。
 - 第一個 Agent 或後台請求會以 D1 狀態鎖補做當日唯一一次輪替。
 - 只納入最近 5 分鐘有回報、已啟用且未暫停的 Agent。
@@ -315,7 +315,7 @@ LINE Bot 是獨立 repo／獨立服務，透過公開蘑菇 API 產生條件式�
 - 目前手機端方案需要 root、Magisk、Zygisk；一般 Android 模擬器或未 root 手機不能直接成為同等 Agent。
 - 遊戲使用 secure surface，常規 screenshot automation 可能只得到黑畫面；驗證以 hook／Agent log、TSV 與雲端計數為主。
 - 大幅跨區移動可能觸發遊戲提示或伺服器冷卻；掃描計畫需保留合理 dwell／cooldown。
-- 每日輪替採 request-driven lazy trigger；07:30 後需有 Agent 或管理後台請求才會執行，並非獨立常駐 cron。
+- 每日輪替採 request-driven lazy trigger；07:30 或 19:30 後需有 Agent 或管理後台請求才會執行，並非獨立常駐 cron。
 - `SPEC_autoscan.md` 保留底層歷史與原始 §6／§7 流程，其中 Windows 主控與「尚未驗證」等敘述可能早於現行 cloud fleet；正式現況以本 README、程式碼與最近實機驗證為準。
 
 ## 文件索引

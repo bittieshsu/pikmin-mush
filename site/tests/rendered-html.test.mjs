@@ -156,7 +156,7 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(schema, /scanRotationRuns/);
   assert.match(cloud, /CREATE TABLE IF NOT EXISTS scan_rotation_runs/);
   assert.match(rotation, /ensureDailyRotation/);
-  assert.match(rotation, /每日 07:30 自動換區/);
+  assert.match(rotation, /每日 07:30.*每日 19:30/s);
   assert.match(rotation, /SELECT \* FROM scan_rotation_runs WHERE schedule_date=\?/);
   assert.match(rotation, /30 \* 60_000/);
   assert.match(rotation, /existingPlan/);
