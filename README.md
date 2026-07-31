@@ -193,7 +193,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\module\package-module.
 2. 安裝 `module/pikmin_hunter.zip` 並重開機。Zygisk 只在 zygote 載入，更新 `.so` 後也必須 reboot。
 3. 從管理後台建立新的 Agent，保存只顯示一次的 ID／Token。
 4. 將 `phone_agent/` 安裝到 `/data/adb/modules/pikmin_scanner_agent/`，正式 token 放在手機端 `token`，設定放在 `config`；每台裝置的 `AGENT_ID` 必須唯一。
-5. 視裝置啟用 `LOCAL_DISPLAY=1`，完成 virtual display 與啟動畫面座標校正。
+5. 視裝置啟用 `LOCAL_DISPLAY=1`，完成 virtual display 與啟動畫面座標校正；150.0 專用掃描手機另啟用 `SYSTEM_GPS_OVERRIDE=1`，讓新版 map query 跟隨 target。
 6. 重開機後確認 `agent.log` 持續 claim target，並確認雲端 uploaded count 實際增加。
 
 一般掃描不需要 ADB。首次安裝或故障維修建議使用 Google 官方 ADB：

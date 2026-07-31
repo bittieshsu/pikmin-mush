@@ -28,8 +28,10 @@ MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-40}"
 STARTUP_TAP_X="${STARTUP_TAP_X:-0}"
+STARTUP_WARNING_Y="${STARTUP_WARNING_Y:-0}"
 STARTUP_CONTINUE_Y="${STARTUP_CONTINUE_Y:-0}"
 STARTUP_LOGIN_CONTINUE_Y="${STARTUP_LOGIN_CONTINUE_Y:-0}"
+SYSTEM_GPS_OVERRIDE="${SYSTEM_GPS_OVERRIDE:-0}"
 AGENT_ID="${AGENT_ID:-primary}"
 AGENT_VERSION="${AGENT_VERSION:-2.1.0}"
 GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
@@ -52,6 +54,29 @@ auth_curl() {
     -H "X-Agent-Version: $AGENT_VERSION" \
     -H "X-Game-Version: $GAME_VERSION" \
     -H "X-Module-Version: $MODULE_VERSION" "$@"
+}
+
+ensure_system_gps_provider() {
+  [ "$SYSTEM_GPS_OVERRIDE" = "1" ] || return 0
+  appops set 2000 android:mock_location allow >/dev/null 2>&1 || return 1
+  su -Z u:r:shell:s0 2000 -c \
+    "cmd location providers add-test-provider gps --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing --powerRequirement 3" \
+    >/dev/null 2>&1 || true
+  su -Z u:r:shell:s0 2000 -c \
+    "cmd location providers set-test-provider-enabled gps true" \
+    >/dev/null 2>&1
+}
+
+set_system_gps() {
+  [ "$SYSTEM_GPS_OVERRIDE" = "1" ] || return 0
+  SYSTEM_LAT="$1"
+  SYSTEM_LNG="$2"
+  case "$SYSTEM_LAT,$SYSTEM_LNG" in
+    *[!0-9+.,-]*) return 1 ;;
+  esac
+  su -Z u:r:shell:s0 2000 -c \
+    "cmd location providers set-test-provider-location gps --location $SYSTEM_LAT,$SYSTEM_LNG --accuracy 3" \
+    >/dev/null 2>&1
 }
 
 save_offset() {
@@ -181,7 +206,18 @@ useful_line_count() {
 }
 
 scan_control() {
-  auth_curl "$SERVER_URL/api/agent/v2/control?job_id=$SCAN_JOB_ID&target_id=$SCAN_TARGET_ID&lease=$SCAN_LEASE" 2>/dev/null
+  # Control polling is advisory during dwell/refresh waits. Keep its timeout
+  # short so a slow control endpoint cannot stretch a bounded map refresh into
+  # several minutes. Empty/error responses fail open; lease validation still
+  # happens on the normal task and ACK requests.
+  /system/bin/curl -fsS --connect-timeout 3 --max-time 5 \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "X-Agent-Id: $AGENT_ID" \
+    -H "X-Agent-Version: $AGENT_VERSION" \
+    -H "X-Game-Version: $GAME_VERSION" \
+    -H "X-Module-Version: $MODULE_VERSION" \
+    "$SERVER_URL/api/agent/v2/control?job_id=$SCAN_JOB_ID&target_id=$SCAN_TARGET_ID&lease=$SCAN_LEASE" \
+    2>/dev/null
 }
 
 interruptible_wait() {
@@ -240,6 +276,7 @@ wait_for_map_refresh() {
     # the fallback still has no map-query/object marker, so normal scans are not
     # disturbed once the map is actually ready.
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 15 ]; then
+      game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
       game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 22 ]; then
@@ -335,6 +372,11 @@ execute_scan_task() {
   SCAN_LEASE="$TASK_LEASE"
   TASK_STARTED_AT="$(date +%s)"
 
+  if ! set_system_gps "$TASK_LAT" "$TASK_LNG"; then
+    echo "[scan] system GPS write failed job=$JOB_ID point=$TASK_INDEX"
+    send_scan_ack "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" 0 0 0
+    return
+  fi
   ensure_game_running
   BEFORE_SIZE="$(file_size)"
   BEFORE_LINES="$(useful_line_count)"
@@ -498,6 +540,10 @@ execute_command() {
   save_seq "$seq"
 }
 
+if ! ensure_system_gps_provider; then
+  echo "[agent] system GPS provider setup failed"
+  exit 1
+fi
 echo "[agent] started id=$AGENT_ID agent=$AGENT_VERSION game=${GAME_VERSION:-unknown} module=$MODULE_VERSION server=$SERVER_URL"
 while true; do
   upload_new

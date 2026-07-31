@@ -17,8 +17,10 @@
 native hook 寫出的 map-query／map-object marker；目前實機穩定設定為
 `MAP_REFRESH_TIMEOUT_SECONDS=0`，直接使用冷啟動 marker 流程。開機服務會先嘗試
 解除無密碼 Keyguard；若重啟後仍停在 Pikmin 的兩個「繼續」畫面，720x1600
-virtual display 可使用 `STARTUP_TAP_X=360`、`STARTUP_CONTINUE_Y=752` 與
-`STARTUP_LOGIN_CONTINUE_Y=860` 自動恢復。
+virtual display 可使用 `STARTUP_TAP_X=360`、`STARTUP_WARNING_Y=835`、
+`STARTUP_CONTINUE_Y=752` 與 `STARTUP_LOGIN_CONTINUE_Y=860` 自動解除安全提示並恢復。
+Pikmin 150.0 的地圖查詢還需要 Android 系統位置；專用掃描手機應設定
+`SYSTEM_GPS_OVERRIDE=1`，Agent 會讓系統 GPS 與每個掃描 target 同步。
 
 所有 Agent API 都要求 `Authorization: Bearer <token>` 與 `X-Agent-Id`。
 Agent 2.1 另回報 `X-Agent-Version`、`X-Game-Version` 與 `X-Module-Version`；

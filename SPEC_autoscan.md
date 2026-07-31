@@ -136,12 +136,13 @@ adb shell su -c 'cat /data/user/0/com.nianticlabs.pikmin/files/mushrooms.tsv'
 
 ## 7. 關鍵陷阱（gotchas，務必知道）
 
-- **檔案 handle bug（剛修）**：模組原本 install_hooks 只 fopen 一次持有 handle；掃描器每點 `rm` 該檔 → Linux 上刪已開啟檔 = handle 指向已刪 inode，之後寫入全遺失（表現為 mushrooms.tsv 一直空、誤以為軟封）。**已改為每次寫入才 fopen/fclose**（module/cpp/il2cpp_dump.cpp），且 **scanner 不再 rm**、改讀整個累積檔 + SQLite 去重。⚠ 此修正剛部署、**尚未端到端確認**，Codex 首要驗證。
+- **檔案 handle bug（已修並驗證）**：模組原本 install_hooks 只 fopen 一次持有 handle；掃描器每點 `rm` 該檔 → Linux 上刪已開啟檔 = handle 指向已刪 inode，之後寫入全遺失。現在每次寫入才 fopen/fclose，scanner 不再 rm、改讀累積檔 + SQLite 去重；150.0 實機已驗證新列、增量 upload 與雲端 offset 同步。
 - **軟封 ≠ 檔案 bug**：先前「無資料」其實多半是上面的檔案 bug。真軟封是大跳造成、伺服器暫停回資料。兩者要分清（遊戲畫面若有蘑菇更新=沒軟封=看檔案/管線）。
 - **Zygisk 只在 zygote 載入**：改 .so 一定 reboot。
 - **反竄改殺「大量 metadata 走訪」**：只做定點 hook，勿在模組跑 il2cpp_dump/列舉全類別。
 - **遊戲畫面 secure surface**：截圖全黑，無法用截圖自動化 UI；需人工/其他方式讓遊戲在地圖前景。
 - **冷啟動首次常自崩一次**（慢機），第二次才穩；模組等 libil2cpp 已放寬到 120s。
+- **150.0 地圖查詢位置來源改變**：遊戲內 `SetDeviceLocationOverrideForDebug` 仍會移動畫面，但單獨使用時不一定觸發伺服器 map query。專用掃描手機需設 `SYSTEM_GPS_OVERRIDE=1`，讓 Agent 同步 Android test GPS；720x1600 的駕駛安全提示按鈕使用 `STARTUP_WARNING_Y=835` 自動解除。
 - **MuMu adb 大檔傳輸曾損壞**：見 §6，正式流程使用 Google 官方 Platform-Tools。
   **絕不要 `pkill toybox`**（會弄斷 adb/系統）。
 - **版本綁死 RVA**：遊戲一更新，本文所有 RVA/偏移失效，須重 dump。模組另驗證三個
