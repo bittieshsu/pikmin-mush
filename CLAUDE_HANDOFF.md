@@ -679,7 +679,7 @@ Agent 標籤不會禁止它接其他國家。需要 hard assignment 時必須新
 
 ### Zygisk RVA 綁遊戲版本
 
-目前 hook 基於 Pikmin Bloom v149.0 / versionCode 1784082813，並在掛 hook 前驗證三個目標
+目前 hook 基於 Pikmin Bloom v150.0 / versionCode 1784893753，並在掛 hook 前驗證目標
 函式的 prologue 簽章。遊戲更新後 RVA 可能全部失效；簽章不符時模組會 fail closed。
 完整細節見 `SPEC_autoscan.md`。
 

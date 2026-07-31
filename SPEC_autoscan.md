@@ -28,16 +28,16 @@
 繞過 Niantic 反 frida/反竄改/payload 加密，在遊戲行程內用 inline hook 直接讀解密後記憶體。已具備兩大功能：
 
 **(A) 蘑菇擷取 hook** — 已驗證：
-- hook `MapManager.RegisterMapObject(MapObjectBase)` @RVA `0xCBCF00C`。
+- hook `MapManager.RegisterMapObject(MapObjectBase)` @RVA `0xCC04EC4`。
 - 過濾 `class == "MapPoiBlocker"`（蘑菇）→ 讀原始 proto（見 §4）→ 取 id/lat/lng/level/type/finishMs。
 - 僅將等級 2–4 寫入 `/data/user/0/com.nianticlabs.pikmin/files/mushrooms.tsv`，格式：
   `ts \t id \t lat \t lng \t cluster \t cooldown \t level \t type \t finishMs`
 - **id 去重**（模組內 std::set g_seen，同一 session 不重複寫）。
 
 **(B) 自動瞬移** — **已驗證可運作**（實測地圖跟著 teleport.txt 動態移動）：
-- hook `LocationController.Update()` @RVA `0x704C184` 捕捉 controller 實例（`this`=x0）。
+- hook `LocationController.Update()` @RVA `0x706E19C` 捕捉 controller 實例（`this`=x0）。
 - 背景執行緒讀 `/data/user/0/.../files/teleport.txt`（內容 `"lat,lng"`），值變更時在**主執行緒**呼叫
-  `LocationController.SetDeviceLocationOverrideForDebug(Nullable<LatLngAlt>)` @RVA `0x704C9DC`。
+  `LocationController.SetDeviceLocationOverrideForDebug(Nullable<LatLngAlt>)` @RVA `0x706EDB8`。
 - **關鍵**：直接寫 override 欄位**無效**；必須**呼叫該方法**才生效（會正確推進定位 stream + 送伺服器）。
 
 ### 2.2 主機端 `scanner/scanner.py` + `scanner/map.html`（已寫好，骨架驗證過）
@@ -63,7 +63,7 @@
 
 ---
 
-## 4. 技術規格（v149.0 / versionCode 1784082813；執行期位址 = libil2cpp 載入基址 + RVA）
+## 4. 技術規格（v150.0 / versionCode 1784893753；執行期位址 = libil2cpp 載入基址 + RVA）
 
 ### 蘑菇資料讀取路徑（obj = MapPoiBlocker）
 - `ProtoBasedMapObject.initialMapObjectProto`(MapObjectProto*) @`0x68`
@@ -75,8 +75,8 @@
 - il2cpp string：length(int)@`0x10`，UTF-16 chars@`0x14`。
 
 ### 自動瞬移
-- `LocationController.Update()` RVA `0x704C184`（捕捉 this，void，每幀）
-- `LocationController.SetDeviceLocationOverrideForDebug(Nullable<LatLngAlt>)` RVA `0x704C9DC`
+- `LocationController.Update()` RVA `0x706E19C`（捕捉 this，void，每幀）
+- `LocationController.SetDeviceLocationOverrideForDebug(Nullable<LatLngAlt>)` RVA `0x706EDB8`
 - `Nullable<LatLngAlt>` 佈局（.NET `{bool hasValue; T value}`，8-align）：hasValue@`0x00`, lat@`0x08`, lng@`0x10`, alt@`0x18`（共 32B）。
 - 呼叫方式（ARM64）：`void fn(void* this, NullablePtr* nv, void* methodInfo=nullptr)`；nv 為 caller 配置的 32B 結構指標。
 - 必須在遊戲主執行緒呼叫（現作法：在 Update hook 內、目標變更時呼叫一次）。
@@ -99,7 +99,7 @@
 ## 6. 環境與 build/deploy/test
 
 ### 環境
-- 手機：arm64、Magisk + Zygisk。**Pikmin 必須維持 149.0 / versionCode 1784082813**（= 偏移與 prologue 簽章來源）。模組 `zygisk_pikmin_hunter` 已安裝。
+- 手機：arm64、Magisk + Zygisk。**Pikmin 必須維持 150.0 / versionCode 1784893753**（= 偏移與 prologue 簽章來源）。模組 `zygisk_pikmin_hunter` 已安裝。
 - PC：Windows，使用 Google 官方 Platform-Tools：
   `%LOCALAPPDATA%\CodexTools\android-platform-tools\platform-tools\adb.exe`。MuMu 內附 ADB
   只保留為歷史備援；正式建置、pull、部署與驗證均使用官方版本。
@@ -145,7 +145,7 @@ adb shell su -c 'cat /data/user/0/com.nianticlabs.pikmin/files/mushrooms.tsv'
 - **MuMu adb 大檔傳輸曾損壞**：見 §6，正式流程使用 Google 官方 Platform-Tools。
   **絕不要 `pkill toybox`**（會弄斷 adb/系統）。
 - **版本綁死 RVA**：遊戲一更新，本文所有 RVA/偏移失效，須重 dump。模組另驗證三個
-  目標函式的 16-byte prologue；不符合 v149.0 時 fail closed，不安裝任何 hook。
+  目標函式的 16-byte prologue；不符合 v150.0 時 fail closed，不安裝任何 hook。
 
 ---
 

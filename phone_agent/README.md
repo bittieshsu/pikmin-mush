@@ -22,7 +22,7 @@ virtual display 可使用 `STARTUP_TAP_X=360`、`STARTUP_CONTINUE_Y=752` 與
 
 所有 Agent API 都要求 `Authorization: Bearer <token>` 與 `X-Agent-Id`。
 Agent 2.1 另回報 `X-Agent-Version`、`X-Game-Version` 與 `X-Module-Version`；
-雲端偵測到遊戲或 native module 與 149.0 不相容時不再派工，並在後台顯示原因。
+雲端要求遊戲與 native module 版本一致；目前支援 149.0 舊節點與 150.0 新節點，不相容時不再派工並在後台顯示原因。
 `primary` 保留既有 Token；新節點由網站後台建立獨立憑證，Token 只顯示一次。
 正式 Token 不應提交版本庫。
 

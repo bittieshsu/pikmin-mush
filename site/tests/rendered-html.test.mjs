@@ -188,7 +188,8 @@ test("adds fleet metrics, viewport pagination, version gates, and safe token rot
   assert.match(migration, /ADD `completed_agent_id`/);
   assert.match(metrics, /buildSoakReport/);
   assert.match(metrics, /NO_DATA_WARN_STREAK = 12/);
-  assert.match(metrics, /REQUIRED_GAME_VERSION = "149\.0"/);
+  assert.match(metrics, /SUPPORTED_GAME_VERSIONS = \["149\.0", "150\.0"\]/);
+  assert.match(metrics, /moduleVersion !== gameVersion/);
   assert.match(metricsRoute, /adminAuthorized/);
   assert.match(metricsRoute, /buildSoakReport/);
   assert.match(mushroomsApi, /parseBbox/);

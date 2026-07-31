@@ -10,7 +10,7 @@ Root Android 手機上的 Zygisk 模組從遊戲地圖資料取得蘑菇資訊�
 - 正式工作目錄：`F:\Codex\Pikmin_Dev`
 
 > [!IMPORTANT]
-> Native hook 目前**鎖定 Pikmin Bloom 149.0／versionCode 1784082813**。遊戲升級後不可直接沿用既有 RVA；模組會檢查目標函式簽章並在不符合時 fail closed。
+> Native hook 目前**鎖定 Pikmin Bloom 150.0／versionCode 1784893753**。遊戲升級後不可直接沿用既有 RVA；模組會檢查目標函式簽章並在不符合時 fail closed。雲端在過渡期間仍接受正確配對的 149.0 遊戲／模組，避免尚未升級的 Agent 中斷。
 
 ## 專案現況
 
@@ -85,7 +85,7 @@ Root Android 手機上的 Zygisk 模組從遊戲地圖資料取得蘑菇資訊�
 ```mermaid
 flowchart LR
     subgraph Android[Root Android Agent]
-        Game[Pikmin Bloom 149.0]
+        Game[Pikmin Bloom 150.0]
         Hook[Zygisk native hook]
         Files[teleport.txt / mushrooms.tsv]
         Agent[phone_agent 常駐服務]
@@ -127,7 +127,7 @@ Windows 現在只用於開發、原生模組建置、首次安裝、升級與故
 
 | 路徑 | 用途 |
 | --- | --- |
-| `module/cpp/` | Pikmin 149.0 的 Zygisk hook、自動定位與 TSV 寫入原始碼 |
+| `module/cpp/` | Pikmin 150.0 的 Zygisk hook、自動定位與 TSV 寫入原始碼 |
 | `module/build-dual-abi.ps1` | 使用 Android NDK 建置 ARM64 與 x86_64 |
 | `module/package-module.ps1` | 產生 Magisk ZIP 並驗證 ZIP 路徑格式 |
 | `module/arm64-v8a.so` | 目前 ARM64 native 產物 |
@@ -170,7 +170,7 @@ npm run dev
 - CMake、Ninja
 - Google 官方 Android Platform-Tools
 - Root Android、Magisk、Zygisk
-- Pikmin Bloom 149.0／versionCode 1784082813
+- Pikmin Bloom 150.0／versionCode 1784893753
 
 Google Drive 的中文路徑曾造成 Android CMake 工具鏈路徑損壞；建置請使用正式的 ASCII 工作目錄 `F:\Codex\Pikmin_Dev`，必要時再 staging 到 `C:\Users\Ody\Downloads\pikmin_build`。
 
@@ -189,7 +189,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\module\package-module.
 
 高階流程如下；完整命令與驗證矩陣請讀 `SPEC_ON_DEVICE_DISPLAY.md` 與 `phone_agent/README.md`。
 
-1. 確認遊戲版本與 ABI；149.0 以外的版本不可直接安裝既有 native hook。
+1. 確認遊戲版本與 ABI；目前 native hook 只可安裝於 150.0。
 2. 安裝 `module/pikmin_hunter.zip` 並重開機。Zygisk 只在 zygote 載入，更新 `.so` 後也必須 reboot。
 3. 從管理後台建立新的 Agent，保存只顯示一次的 ID／Token。
 4. 將 `phone_agent/` 安裝到 `/data/adb/modules/pikmin_scanner_agent/`，正式 token 放在手機端 `token`，設定放在 `config`；每台裝置的 `AGENT_ID` 必須唯一。
@@ -324,7 +324,7 @@ LINE Bot 是獨立 repo／獨立服務，透過公開蘑菇 API 產生條件式�
 
 1. `README.md`：正式現況、架構與日常入口（本文件）。
 2. `SECURITY.md`：信任邊界、secret、部署安全檢查與事件處置。
-3. `SPEC_autoscan.md`：Pikmin 149.0 hook、欄位偏移、native build／deploy 與 gotchas。
+3. `SPEC_autoscan.md`：Pikmin 150.0 hook、欄位偏移、native build／deploy 與 gotchas。
 4. `phone_agent/README.md`：Agent 協定、設定與手機端更新。
 5. `SPEC_ON_DEVICE_DISPLAY.md`：手機自主 virtual display、開機、安裝與多機驗證。
 6. `SPEC_HEADLESS_SUPERVISOR.md`：Windows 維修 supervisor 與 recovery state machine。
