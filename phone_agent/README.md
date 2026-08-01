@@ -45,6 +45,8 @@ su -c '/data/adb/modules/pikmin_scanner_agent/control.sh resume'
 開啟時需要在 Magisk／root 管理器授予 root 權限。若手機使用
 Kitsune Mask 的 SU-list 模式，安裝 APK 後以 root 執行
 `phone_agent/allow-control-app-root.sh`，只會將這個固定 App 套件加入允許清單。
+Release APK 使用 GitHub Actions secrets 中的固定簽章，金鑰不得提交到版本庫；
+這能讓後續版本安全覆蓋升級，也防止其他 APK 冒用已取得 root 權限的套件名。
 `primary` 保留既有 Token；新節點由網站後台建立獨立憑證，Token 只顯示一次。
 正式 Token 不應提交版本庫。
 

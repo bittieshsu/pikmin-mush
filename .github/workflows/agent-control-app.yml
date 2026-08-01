@@ -37,7 +37,17 @@ jobs:
           bash phone_agent/tests/control-test.sh
       - name: Build APK
         working-directory: agent_control_app
-        run: gradle --no-daemon :app:assembleRelease
+        env:
+          AGENT_CONTROL_KEYSTORE_B64: ${{ secrets.AGENT_CONTROL_KEYSTORE_B64 }}
+          AGENT_CONTROL_KEYSTORE_PASSWORD: ${{ secrets.AGENT_CONTROL_KEYSTORE_PASSWORD }}
+          AGENT_CONTROL_KEY_ALIAS: ${{ secrets.AGENT_CONTROL_KEY_ALIAS }}
+          AGENT_CONTROL_KEY_PASSWORD: ${{ secrets.AGENT_CONTROL_KEY_PASSWORD }}
+          AGENT_CONTROL_KEYSTORE_PATH: ../signing/agent-control-release.p12
+        run: |
+          test -n "$AGENT_CONTROL_KEYSTORE_B64"
+          mkdir -p signing
+          printf '%s' "$AGENT_CONTROL_KEYSTORE_B64" | base64 --decode > signing/agent-control-release.p12
+          gradle --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pikmin-agent-control
