@@ -1,0 +1,55 @@
+name: Agent Control App
+
+on:
+  pull_request:
+    paths:
+      - "agent_control_app/**"
+      - "phone_agent/**"
+      - ".github/workflows/agent-control-app.yml"
+  push:
+    branches: [main]
+    paths:
+      - "agent_control_app/**"
+      - "phone_agent/**"
+      - ".github/workflows/agent-control-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Validate Agent shell controls
+        run: |
+          bash -n phone_agent/agent.sh
+          bash -n phone_agent/control.sh
+          bash -n phone_agent/allow-control-app-root.sh
+          bash phone_agent/tests/control-test.sh
+      - name: Build APK
+        working-directory: agent_control_app
+        env:
+          AGENT_CONTROL_KEYSTORE_B64: ${{ secrets.AGENT_CONTROL_KEYSTORE_B64 }}
+          AGENT_CONTROL_KEYSTORE_PASSWORD: ${{ secrets.AGENT_CONTROL_KEYSTORE_PASSWORD }}
+          AGENT_CONTROL_KEY_ALIAS: ${{ secrets.AGENT_CONTROL_KEY_ALIAS }}
+          AGENT_CONTROL_KEY_PASSWORD: ${{ secrets.AGENT_CONTROL_KEY_PASSWORD }}
+          AGENT_CONTROL_KEYSTORE_PATH: ../signing/agent-control-release.p12
+        run: |
+          test -n "$AGENT_CONTROL_KEYSTORE_B64"
+          mkdir -p signing
+          printf '%s' "$AGENT_CONTROL_KEYSTORE_B64" | base64 --decode > signing/agent-control-release.p12
+          gradle --no-daemon :app:assembleRelease
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pikmin-agent-control
+          path: agent_control_app/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error

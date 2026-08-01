@@ -25,6 +25,28 @@ Pikmin 150.0 的地圖查詢還需要 Android 系統位置；專用掃描手機�
 所有 Agent API 都要求 `Authorization: Bearer <token>` 與 `X-Agent-Id`。
 Agent 2.1 另回報 `X-Agent-Version`、`X-Game-Version` 與 `X-Module-Version`；
 雲端要求遊戲與 native module 版本一致；目前支援 149.0 舊節點與 150.0 新節點，不相容時不再派工並在後台顯示原因。
+
+## 手機端暫停控制
+
+`control.sh` 讓 root 控制 App 操作本機 Agent，不需要把管理員密碼或 Agent token
+放進 APK。暫停狀態寫在 `pause.until`，因此 App 關閉或手機重開後仍會保留；期限到後
+Agent 會自動刪除暫停檔並繼續領取工作。目前支援：
+
+```sh
+su -c '/data/adb/modules/pikmin_scanner_agent/control.sh status'
+su -c '/data/adb/modules/pikmin_scanner_agent/control.sh pause 60'
+su -c '/data/adb/modules/pikmin_scanner_agent/control.sh pause 100'
+su -c '/data/adb/modules/pikmin_scanner_agent/control.sh pause-manual'
+su -c '/data/adb/modules/pikmin_scanner_agent/control.sh resume'
+```
+
+手機 App 原始碼位於 `agent_control_app/`，release APK 由
+`.github/workflows/agent-control-app.yml` 建置。App 僅執行上述固定控制腳本，第一次
+開啟時需要在 Magisk／root 管理器授予 root 權限。若手機使用
+Kitsune Mask 的 SU-list 模式，安裝 APK 後以 root 執行
+`phone_agent/allow-control-app-root.sh`，只會將這個固定 App 套件加入允許清單。
+Release APK 使用 GitHub Actions secrets 中的固定簽章，金鑰不得提交到版本庫；
+這能讓後續版本安全覆蓋升級，也防止其他 APK 冒用已取得 root 權限的套件名。
 `primary` 保留既有 Token；新節點由網站後台建立獨立憑證，Token 只顯示一次。
 正式 Token 不應提交版本庫。
 

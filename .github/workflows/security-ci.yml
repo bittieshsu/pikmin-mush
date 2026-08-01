@@ -27,4 +27,8 @@ jobs:
       - run: node scripts/audit-lockfile.mjs
       - name: Validate Android Agent shell
         working-directory: .
-        run: bash -n phone_agent/agent.sh
+        run: |
+          bash -n phone_agent/agent.sh
+          bash -n phone_agent/control.sh
+          bash -n phone_agent/allow-control-app-root.sh
+          bash phone_agent/tests/control-test.sh

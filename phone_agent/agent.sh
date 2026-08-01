@@ -14,6 +14,7 @@ SCAN_PENDING="$MODDIR/scan.pending"
 DISPLAY_FILE="$MODDIR/game.display"
 SCAN_READY="$APP_FILES/scan.ready"
 QUERY_READY="$APP_FILES/map_query.ready"
+PAUSE_FILE="$MODDIR/pause.until"
 MAX_UPLOAD_CHUNK_BYTES=262144
 
 if [ ! -f "$CONFIG" ]; then
@@ -77,6 +78,28 @@ set_system_gps() {
   su -Z u:r:shell:s0 2000 -c \
     "cmd location providers set-test-provider-location gps --location $SYSTEM_LAT,$SYSTEM_LNG --accuracy 3" \
     >/dev/null 2>&1
+}
+
+refresh_local_pause() {
+  LOCAL_PAUSE_KIND=""
+  LOCAL_PAUSE_REMAINING=0
+  [ -s "$PAUSE_FILE" ] || return 1
+  LOCAL_PAUSE_VALUE="$(tr -d '\r\n ' <"$PAUSE_FILE" 2>/dev/null)"
+  if [ "$LOCAL_PAUSE_VALUE" = "manual" ]; then
+    LOCAL_PAUSE_KIND="manual"
+    return 0
+  fi
+  case "$LOCAL_PAUSE_VALUE" in
+    ''|*[!0-9]*) rm -f "$PAUSE_FILE"; return 1 ;;
+  esac
+  LOCAL_PAUSE_NOW="$(date +%s)"
+  if [ "$LOCAL_PAUSE_VALUE" -le "$LOCAL_PAUSE_NOW" ]; then
+    rm -f "$PAUSE_FILE"
+    return 1
+  fi
+  LOCAL_PAUSE_KIND="timed"
+  LOCAL_PAUSE_REMAINING=$((LOCAL_PAUSE_VALUE - LOCAL_PAUSE_NOW))
+  return 0
 }
 
 save_offset() {
@@ -224,6 +247,7 @@ interruptible_wait() {
   WAIT_LEFT="$(number_or_zero "$1")"
   WAIT_JOB="$2"
   while [ "$WAIT_LEFT" -gt 0 ]; do
+    refresh_local_pause && return 2
     WAIT_STEP=5
     [ "$WAIT_LEFT" -lt 5 ] && WAIT_STEP="$WAIT_LEFT"
     sleep "$WAIT_STEP"
@@ -252,6 +276,7 @@ wait_for_map_refresh() {
   REFRESH_TOTAL="$REFRESH_LEFT"
   QUERY_SEEN_AT=0
   while [ "$REFRESH_LEFT" -gt 0 ]; do
+    refresh_local_pause && return 2
     if refresh_marker_matches "$SCAN_READY" "$REFRESH_TOKEN"; then
       echo "[scan] $REFRESH_PHASE refresh ready target=$REFRESH_TOKEN source=object"
       return 0
@@ -372,6 +397,10 @@ execute_scan_task() {
   SCAN_LEASE="$TASK_LEASE"
   TASK_STARTED_AT="$(date +%s)"
 
+  if refresh_local_pause; then
+    echo "[scan] local pause requested before point=$TASK_INDEX"
+    return
+  fi
   if ! set_system_gps "$TASK_LAT" "$TASK_LNG"; then
     echo "[scan] system GPS write failed job=$JOB_ID point=$TASK_INDEX"
     send_scan_ack "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" 0 0 0
@@ -544,9 +573,26 @@ if ! ensure_system_gps_provider; then
   echo "[agent] system GPS provider setup failed"
   exit 1
 fi
+LOCAL_PAUSE_LOGGED=0
 echo "[agent] started id=$AGENT_ID agent=$AGENT_VERSION game=${GAME_VERSION:-unknown} module=$MODULE_VERSION server=$SERVER_URL"
 while true; do
   upload_new
+  if refresh_local_pause; then
+    if [ "$LOCAL_PAUSE_LOGGED" -eq 0 ]; then
+      if [ "$LOCAL_PAUSE_KIND" = "manual" ]; then
+        echo "[agent] locally paused until manual resume"
+      else
+        echo "[agent] locally paused remaining=${LOCAL_PAUSE_REMAINING}s"
+      fi
+      LOCAL_PAUSE_LOGGED=1
+    fi
+    sleep "$POLL_SECONDS"
+    continue
+  fi
+  if [ "$LOCAL_PAUSE_LOGGED" -eq 1 ]; then
+    echo "[agent] local pause ended; resuming"
+    LOCAL_PAUSE_LOGGED=0
+  fi
   if [ "$AGENT_ID" = "primary" ]; then
     COMMAND="$(auth_curl "$SERVER_URL/api/agent/command?since=$LAST_SEQ" 2>/dev/null)"
     if [ -n "$COMMAND" ]; then
