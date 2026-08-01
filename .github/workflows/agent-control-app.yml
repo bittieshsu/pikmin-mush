@@ -33,6 +33,7 @@ jobs:
         run: |
           bash -n phone_agent/agent.sh
           bash -n phone_agent/control.sh
+          bash -n phone_agent/allow-control-app-root.sh
           bash phone_agent/tests/control-test.sh
       - name: Build APK
         working-directory: agent_control_app

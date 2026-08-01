@@ -42,7 +42,9 @@ su -c '/data/adb/modules/pikmin_scanner_agent/control.sh resume'
 
 手機 App 原始碼位於 `agent_control_app/`，release APK 由
 `.github/workflows/agent-control-app.yml` 建置。App 僅執行上述固定控制腳本，第一次
-開啟時需要在 Magisk／root 管理器授予 root 權限。
+開啟時需要在 Magisk／root 管理器授予 root 權限。若手機使用
+Kitsune Mask 的 SU-list 模式，安裝 APK 後以 root 執行
+`phone_agent/allow-control-app-root.sh`，只會將這個固定 App 套件加入允許清單。
 `primary` 保留既有 Token；新節點由網站後台建立獨立憑證，Token 只顯示一次。
 正式 Token 不應提交版本庫。
 

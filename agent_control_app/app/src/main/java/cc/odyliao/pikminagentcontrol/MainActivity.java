@@ -179,7 +179,7 @@ public final class MainActivity extends Activity {
     private Result execute(String command) {
         StringBuilder output = new StringBuilder();
         try {
-            Process process = new ProcessBuilder("su", "-c", CONTROL + " " + command)
+            Process process = new ProcessBuilder("/system/bin/su", "-c", CONTROL + " " + command)
                     .redirectErrorStream(true).start();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
@@ -225,6 +225,9 @@ public final class MainActivity extends Activity {
     private void showError(String detail) {
         statusView.setText("無法控制 Agent");
         statusView.setTextColor(Color.rgb(190, 55, 48));
+        if (detail.contains("Permission denied") || detail.contains("error=13")) {
+            detail = "Root 權限尚未開啟；請在 Magisk 的「超級使用者」中允許 Pikmin Scanner 控制。";
+        }
         detailView.setText(detail.isEmpty()
                 ? "請確認 Agent 控制腳本已部署，並授予此 App root 權限。" : detail);
     }
