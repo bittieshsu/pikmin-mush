@@ -133,6 +133,7 @@ Windows 現在只用於開發、原生模組建置、首次安裝、升級與故
 | `module/arm64-v8a.so` | 目前 ARM64 native 產物 |
 | `module/pikmin_hunter.zip` | Zygisk Magisk 安裝包 |
 | `phone_agent/` | Android 常駐 Agent、開機服務、虛擬顯示與復原工具 |
+| `agent_control_app/` | 手機端 Agent 暫停／恢復控制 App（60、100 與自訂分鐘數） |
 | `site/` | 公開地圖、管理後台、API、D1 schema、migration 與測試 |
 | `scanner/` | 舊 Windows 掃描器與維修工具；runtime DB、log、token 不納入 Git |
 | `reference/` | 本機 IL2CPP 逆向資料；大型 dump 不納入 Git |
