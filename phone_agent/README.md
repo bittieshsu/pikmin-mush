@@ -40,6 +40,10 @@ su -c '/data/adb/modules/pikmin_scanner_agent/control.sh pause-manual'
 su -c '/data/adb/modules/pikmin_scanner_agent/control.sh resume'
 ```
 
+控制 App 1.1 起也會顯示最近掃描的國家－城市、GPS、點位進度、擷取筆數與耗時。
+App 只建立一條持續的 root 狀態串流，每 5 秒由同一個程序更新畫面，不再每 5 秒
+重新呼叫 `su`；因此切換到其他 App 時，超級使用者授權提示不會持續重複出現。
+
 手機 App 原始碼位於 `agent_control_app/`，release APK 由
 `.github/workflows/agent-control-app.yml` 建置。App 僅執行上述固定控制腳本，第一次
 開啟時需要在 Magisk／root 管理器授予 root 權限。若手機使用

@@ -20,6 +20,8 @@ import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,29 +29,32 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final String CONTROL =
             "/data/adb/modules/pikmin_scanner_agent/control.sh";
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService commandExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService statusExecutor = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView statusView;
     private TextView detailView;
+    private TextView locationView;
+    private TextView gpsView;
+    private TextView resultView;
+    private TextView updatedView;
     private EditText minutesInput;
     private boolean commandRunning;
-
-    private final Runnable statusPoll = new Runnable() {
-        @Override public void run() {
-            refreshStatus(false);
-            handler.postDelayed(this, 5000);
-        }
-    };
+    private volatile Process statusProcess;
+    private volatile boolean destroyed;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         setContentView(buildContent());
-        handler.post(statusPoll);
+        startStatusStream();
     }
 
     @Override protected void onDestroy() {
-        handler.removeCallbacks(statusPoll);
-        executor.shutdownNow();
+        destroyed = true;
+        Process process = statusProcess;
+        if (process != null) process.destroy();
+        statusExecutor.shutdownNow();
+        commandExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -82,6 +87,17 @@ public final class MainActivity extends Activity {
         detailView = text("需要 Magisk root 權限。", 14, Color.rgb(96, 110, 101));
         detailView.setPadding(0, dp(7), 0, 0);
         card.addView(detailView);
+
+        locationView = liveStatusText("城市：等待第一個掃描點");
+        locationView.setPadding(0, dp(16), 0, 0);
+        card.addView(locationView);
+        gpsView = liveStatusText("GPS：—");
+        card.addView(gpsView);
+        resultView = liveStatusText("最近結果：等待掃描完成");
+        card.addView(resultView);
+        updatedView = text("狀態尚未更新", 12, Color.rgb(125, 139, 130));
+        updatedView.setPadding(0, dp(8), 0, 0);
+        card.addView(updatedView);
 
         root.addView(section("快速暫停"));
         LinearLayout quick = new LinearLayout(this);
@@ -149,7 +165,7 @@ public final class MainActivity extends Activity {
         if (commandRunning) return;
         commandRunning = true;
         detailView.setText("正在套用…");
-        executor.execute(() -> {
+        commandExecutor.execute(() -> {
             Result result = execute(command);
             handler.post(() -> {
                 commandRunning = false;
@@ -163,17 +179,69 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void refreshStatus(boolean notifyFailure) {
-        if (commandRunning) return;
-        executor.execute(() -> {
-            Result result = execute("status");
-            handler.post(() -> {
-                if (result.ok) renderStatus(result.output);
-                else if (notifyFailure || statusView.getText().toString().contains("確認")) {
-                    showError(result.output);
+    private void startStatusStream() {
+        statusExecutor.execute(() -> {
+            StringBuilder errors = new StringBuilder();
+            try {
+                Process process = new ProcessBuilder(
+                        "/system/bin/su", "-c", CONTROL + " watch 5")
+                        .redirectErrorStream(true).start();
+                statusProcess = process;
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while (!destroyed && (line = reader.readLine()) != null) {
+                        final String value = line;
+                        if (value.startsWith("snapshot\t")) {
+                            handler.post(() -> renderSnapshot(value));
+                        } else {
+                            if (errors.length() > 0) errors.append('\n');
+                            errors.append(value);
+                        }
+                    }
                 }
-            });
+                int exit = process.waitFor();
+                if (!destroyed && exit != 0) {
+                    String detail = errors.toString().trim();
+                    handler.post(() -> showError(detail));
+                }
+            } catch (Exception e) {
+                if (!destroyed) {
+                    String detail = e.getClass().getSimpleName() + ": " + e.getMessage();
+                    handler.post(() -> showError(detail));
+                }
+            } finally {
+                statusProcess = null;
+            }
         });
+    }
+
+    private void renderSnapshot(String raw) {
+        String[] parts = raw.split("\\t", -1);
+        if (parts.length < 9 || !"snapshot".equals(parts[0])) return;
+        renderStatus(parts[1]);
+        String location = parts[2];
+        String progress = parts[5];
+        locationView.setText(location.isEmpty()
+                ? "城市：等待第一個掃描點"
+                : "城市：" + location + (progress.isEmpty() ? "" : "（" + progress + "）"));
+        gpsView.setText(parts[3].isEmpty() || parts[4].isEmpty()
+                ? "GPS：—" : "GPS：" + parts[3] + ", " + parts[4]);
+        if (parts[6].isEmpty()) {
+            resultView.setText("最近結果：等待掃描完成");
+        } else {
+            long rows = parseLong(parts[6]);
+            String elapsed = parts[7].isEmpty() ? "" : "・耗時 " + parts[7] + " 秒";
+            resultView.setText(rows == 0
+                    ? "最近結果：本點沒有新增蘑菇" + elapsed
+                    : "最近結果：新增 " + rows + " 筆" + elapsed);
+        }
+        long updated = parseLong(parts[8]);
+        if (updated > 0) {
+            String time = new SimpleDateFormat("HH:mm:ss", Locale.TAIWAN)
+                    .format(new Date(updated * 1000));
+            updatedView.setText("即時狀態更新：" + time);
+        }
     }
 
     private Result execute(String command) {
@@ -241,6 +309,12 @@ public final class MainActivity extends Activity {
         TextView view = text(value, 17, Color.rgb(45, 84, 65));
         view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setPadding(0, dp(8), 0, dp(10));
+        return view;
+    }
+
+    private TextView liveStatusText(String value) {
+        TextView view = text(value, 15, Color.rgb(61, 84, 70));
+        view.setPadding(0, dp(5), 0, 0);
         return view;
     }
 
