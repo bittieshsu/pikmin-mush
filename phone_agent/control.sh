@@ -3,6 +3,7 @@
 MODDIR="${PIKMIN_AGENT_CONTROL_DIR:-${0%/*}}"
 PAUSE_FILE="$MODDIR/pause.until"
 AUDIT_LOG="$MODDIR/control.log"
+AGENT_LOG="$MODDIR/agent.log"
 
 now_epoch() {
   date +%s
@@ -36,6 +37,56 @@ status() {
   echo "paused until $value $((value - now))"
 }
 
+snapshot() {
+  SNAP_STATE="$(status)"
+  SNAP_LOCATION=""
+  SNAP_LAT=""
+  SNAP_LNG=""
+  SNAP_PROGRESS=""
+  SNAP_ROWS=""
+  SNAP_ELAPSED=""
+
+  SNAP_GPS_LINE="$(tail -n 300 "$AGENT_LOG" 2>/dev/null | \
+    grep '^\[scan\] .* GPS=' | tail -n 1)"
+  if [ -n "$SNAP_GPS_LINE" ]; then
+    SNAP_BODY="${SNAP_GPS_LINE#*] }"
+    SNAP_GPS="${SNAP_BODY##* GPS=}"
+    SNAP_LEFT="${SNAP_BODY% GPS=*}"
+    SNAP_PROGRESS="${SNAP_LEFT##* }"
+    SNAP_LOCATION="${SNAP_LEFT% *}"
+    SNAP_LAT="${SNAP_GPS%%,*}"
+    SNAP_LNG="${SNAP_GPS#*,}"
+  fi
+
+  SNAP_RESULT_LINE="$(tail -n 300 "$AGENT_LOG" 2>/dev/null | \
+    grep '^\[scan\] completed point=' | tail -n 1)"
+  if [ -n "$SNAP_RESULT_LINE" ]; then
+    SNAP_ROWS="${SNAP_RESULT_LINE#* rows=+}"
+    SNAP_ROWS="${SNAP_ROWS%% *}"
+    SNAP_ELAPSED="${SNAP_RESULT_LINE#* elapsed=}"
+    SNAP_ELAPSED="${SNAP_ELAPSED%%s*}"
+  fi
+
+  printf 'snapshot\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$SNAP_STATE" "$SNAP_LOCATION" "$SNAP_LAT" "$SNAP_LNG" \
+    "$SNAP_PROGRESS" "$SNAP_ROWS" "$SNAP_ELAPSED" "$(now_epoch)"
+}
+
+watch_status() {
+  interval="${1:-5}"
+  case "$interval" in
+    ''|*[!0-9]*) echo "error invalid-watch-interval" >&2; exit 2 ;;
+  esac
+  if [ "$interval" -lt 2 ] || [ "$interval" -gt 60 ]; then
+    echo "error watch-interval-out-of-range" >&2
+    exit 2
+  fi
+  while true; do
+    snapshot
+    sleep "$interval"
+  done
+}
+
 pause_minutes() {
   minutes="$1"
   case "$minutes" in
@@ -56,6 +107,8 @@ pause_minutes() {
 
 case "${1:-status}" in
   status) status ;;
+  snapshot) snapshot ;;
+  watch) watch_status "${2:-5}" ;;
   pause) pause_minutes "${2:-}" ;;
   pause-manual)
     printf 'manual\n' >"$PAUSE_FILE"
@@ -69,7 +122,7 @@ case "${1:-status}" in
     status
     ;;
   *)
-    echo "usage: $0 {status|pause MINUTES|pause-manual|resume}" >&2
+    echo "usage: $0 {status|snapshot|watch [SECONDS]|pause MINUTES|pause-manual|resume}" >&2
     exit 2
     ;;
 esac
