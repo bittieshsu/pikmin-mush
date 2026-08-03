@@ -105,3 +105,28 @@ export function planDailyRotation(agentIds, now = Date.now()) {
     assignments: agents.map((agentId, index) => ({ agentId, ...selected[index] })),
   };
 }
+
+// Select a balanced route set for an operator-triggered redeployment without
+// consuming or modifying the scheduled 07:30 / 19:30 rotation window. The
+// manual set skips both the current scheduled day and the next scheduled day,
+// so the next automatic switch always moves every Agent to fresh packs.
+export function planManualRedeploy(agentIds, now = Date.now()) {
+  const agents = [...new Set(agentIds.map(String).filter(Boolean))].sort();
+  if (!agents.length) return { ...rotationWindow(now), assignments: [] };
+  const bundles = ROTATION_DAYS.flat();
+  if (agents.length > bundles.length) {
+    throw new Error(`手動重新分配最多支援 ${bundles.length} 個啟用 Agent`);
+  }
+  const window = rotationWindow(now);
+  const currentDay = mod(window.slotOffset, ROTATION_DAYS.length);
+  const manualDay = mod(currentDay + 2, ROTATION_DAYS.length);
+  const cycle = Math.floor(window.slotOffset / ROTATION_DAYS.length);
+  const routes = ROTATION_DAYS[manualDay];
+  const ordered = mod(cycle, 2) ? [...routes].reverse() : routes;
+  return {
+    ...window,
+    cycle,
+    dayIndex: manualDay,
+    assignments: agents.map((agentId, index) => ({ agentId, ...ordered[index] })),
+  };
+}

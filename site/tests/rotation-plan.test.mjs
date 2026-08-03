@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  planDailyRotation, ROTATION_DAYS, rotationWindow,
+  planDailyRotation, planManualRedeploy, ROTATION_DAYS, rotationWindow,
 } from "../lib/rotation-plan.mjs";
 
 test("switches at 07:30 and 19:30 Asia/Taipei", () => {
@@ -15,6 +15,20 @@ test("switches at 07:30 and 19:30 Asia/Taipei", () => {
   assert.equal(evening.scheduleDate, "2026-07-23-pm");
   assert.equal(morning.nextSwitchAt, Date.parse("2026-07-23T11:30:00Z"));
   assert.equal(evening.nextSwitchAt, Date.parse("2026-07-23T23:30:00Z"));
+});
+
+test("manual redeploy avoids both current and next scheduled routes", () => {
+  const now = Date.parse("2026-08-03T05:00:00Z");
+  const agents = ["primary", "agent-2", "agent-3"];
+  const current = planDailyRotation(agents, now);
+  const manual = planManualRedeploy(agents, now);
+  const next = planDailyRotation(agents, current.nextSwitchAt);
+  const currentIds = new Set(current.assignments.map((item) => item.id));
+  const nextIds = new Set(next.assignments.map((item) => item.id));
+  assert.equal(manual.assignments.length, 3);
+  assert.equal(manual.assignments.every((item) => !currentIds.has(item.id)), true);
+  assert.equal(manual.assignments.every((item) => !nextIds.has(item.id)), true);
+  assert.deepEqual(manual.assignments.map((item) => item.cityCount), [29, 29, 29]);
 });
 
 test("assigns three Agents distinct balanced routes and covers all packs in five days", () => {

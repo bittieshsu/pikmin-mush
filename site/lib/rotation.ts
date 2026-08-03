@@ -4,7 +4,7 @@ import {
 } from "./scan-plans";
 import { appendScanLog } from "./scans";
 import { materializeTargets } from "./targets";
-import { planDailyRotation, rotationWindow } from "./rotation-plan.mjs";
+import { planDailyRotation, planManualRedeploy, rotationWindow } from "./rotation-plan.mjs";
 
 const LOCK_STALE_MS = 5 * 60_000;
 // A cross-country target can include a 120-second cooldown plus a cold game
@@ -217,5 +217,72 @@ export async function rotationStatus(now = Date.now()) {
     job_id: run?.job_id == null ? null : Number(run.job_id),
     assignments,
     message: run?.message ?? "等待 07:30 / 19:30 換區",
+  };
+}
+
+export async function redeployDailyRotation(now = Date.now()) {
+  await ensureSchema();
+  const db = runtime().DB;
+  const setting = await db.prepare("SELECT * FROM scan_rotation_settings WHERE id=1")
+    .first<RotationSettingRow>();
+  if (!setting?.enabled) throw new Error("每日自動換區未啟用");
+
+  const agents = await db.prepare(`SELECT id FROM scan_agents
+    WHERE enabled=1 AND paused=0 AND last_seen>? ORDER BY id`)
+    .bind(now - AGENT_ACTIVE_MS).all<{ id: string }>();
+  if (!agents.results.length) throw new Error("目前沒有可重新分配的在線 Agent");
+
+  const pendingVerification = await db.prepare(`SELECT COUNT(*) AS count
+    FROM scan_targets
+    WHERE verification_kind='candidate' AND status IN ('queued','leased')`)
+    .first<{ count: number }>();
+  if (Number(pendingVerification?.count ?? 0) > 0) {
+    throw new Error("通知複查仍在進行，完成後才能重新分配");
+  }
+
+  const planned = planManualRedeploy(agents.results.map((agent) => agent.id), now);
+  const latest = await db.prepare("SELECT config_json FROM scan_jobs ORDER BY id DESC LIMIT 1")
+    .first<{ config_json: string }>();
+  let previousConfig: unknown = {};
+  try {
+    previousConfig = JSON.parse(latest?.config_json ?? "{}");
+  } catch {
+    previousConfig = {};
+  }
+  const assignments = planned.assignments.map((assignment) => ({
+    ...assignment,
+    countries: packNames(assignment.packs),
+  }));
+  const selectedPacks = [...new Set(assignments.flatMap((item) => item.packs))];
+  const config = scanConfig(previousConfig, selectedPacks);
+  const { regions, targets } = buildScanPlan(config, null);
+
+  await stopActiveJobs(now, "手動重新分配");
+  const created = await db.prepare(`INSERT INTO scan_jobs (
+      status, config_json, plan_json, total_points, loop, message,
+      created_at, updated_at
+    ) VALUES ('queued', ?, ?, ?, 1, ?, ?, ?) RETURNING id`)
+    .bind(JSON.stringify(config), JSON.stringify(targets), targets.length,
+      "手動重新分配：等待 Agent 接手", now, now)
+    .first<{ id: number }>();
+  const jobId = Number(created?.id ?? 0);
+  if (!jobId) throw new Error("無法建立手動重新分配工作");
+  await materializeTargets(jobId, targets);
+
+  const updates = assignments.map((assignment) =>
+    db.prepare(`UPDATE scan_agents SET region_tags_json=?, current_job_id=NULL,
+      current_target_id=NULL, updated_at=? WHERE id=? AND enabled=1`)
+      .bind(JSON.stringify(assignment.countries), now, assignment.agentId));
+  if (updates.length) await db.batch(updates);
+  const summary = assignments.map((item) =>
+    `${item.agentId}=${item.label}(${item.cityCount} 城)`).join("；");
+  await appendScanLog(jobId, "info",
+    `手動重新分配：${summary}；共 ${regions.length} 城、${targets.length} 點；下次仍依原排程換區`);
+  return {
+    job_id: jobId,
+    assignments,
+    regions: regions.length,
+    points: targets.length,
+    next_switch_at: planned.nextSwitchAt,
   };
 }
