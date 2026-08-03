@@ -3,8 +3,10 @@ $ErrorActionPreference = 'Stop'
 $phoneAgentDirectory = Split-Path -Parent $PSScriptRoot
 $installerPath = Join-Path $phoneAgentDirectory 'install-local-display.ps1'
 $displayManagerPath = Join-Path $phoneAgentDirectory 'local-display.sh'
+$agentPath = Join-Path $phoneAgentDirectory 'agent.sh'
 $installer = Get-Content -LiteralPath $installerPath -Raw
 $displayManager = Get-Content -LiteralPath $displayManagerPath -Raw
+$agent = Get-Content -LiteralPath $agentPath -Raw
 
 $tokens = $null
 $parseErrors = $null
@@ -47,5 +49,10 @@ if ($displayWriteIndex -lt 0 -or $forceStopIndex -lt 0 -or $displayStartIndex -l
     $displayWriteIndex -gt $forceStopIndex -or $forceStopIndex -gt $displayStartIndex) {
     throw 'A rebuilt display must be published, then force-stop and relaunch Pikmin on that display.'
 }
+
+Assert-Contains $agent 'DISPLAY_QUERY_TIMEOUT_SECONDS' `
+    'Agent display discovery must have a configurable timeout.'
+Assert-Contains $agent 'timeout -k 2 "\$DISPLAY_QUERY_TIMEOUT_SECONDS"' `
+    'Agent display discovery can block forever without a bounded command.'
 
 Write-Host 'Deployment hardening regression tests passed.'

@@ -28,6 +28,7 @@ MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-40}"
+DISPLAY_QUERY_TIMEOUT_SECONDS="${DISPLAY_QUERY_TIMEOUT_SECONDS:-5}"
 STARTUP_TAP_X="${STARTUP_TAP_X:-0}"
 STARTUP_WARNING_Y="${STARTUP_WARNING_Y:-0}"
 STARTUP_CONTINUE_Y="${STARTUP_CONTINUE_Y:-0}"
@@ -149,8 +150,9 @@ upload_new() {
 game_display_id() {
   DISPLAY_ID="$(cat "$DISPLAY_FILE" 2>/dev/null)"
   case "$DISPLAY_ID" in ''|*[!0-9]*) return 1 ;; esac
-  su -Z u:r:shell:s0 2000 -c "cmd display get-displays" 2>/dev/null |
-    grep -q "Display id $DISPLAY_ID:" || return 1
+  DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
+    su -Z u:r:shell:s0 2000 -c "cmd display get-displays" 2>/dev/null)" || return 1
+  echo "$DISPLAY_LIST" | grep -q "Display id $DISPLAY_ID:" || return 1
   echo "$DISPLAY_ID"
 }
 
