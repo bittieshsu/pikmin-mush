@@ -37,6 +37,20 @@
 .header nav a { color: #385b48; font-weight: 800; }
 .header nav span { padding: 8px 12px; border-radius: 999px; background: #fff; }
 
+.dataWarning {
+  max-width: 1404px;
+  margin: 0 auto 16px;
+  padding: 12px 16px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #e2b77c;
+  border-radius: 14px;
+  color: #7c4a1e;
+  background: #fff7e7;
+}
+.dataWarning span { font-size: 12px; }
+.inlineWarning { margin: 0 0 10px; color: #8b5526; font-size: 12px; font-weight: 800; }
+
 .healthGrid {
   max-width: 1440px;
   margin: 0 auto 16px;
@@ -236,6 +250,7 @@
 .healthGrid small { color: #7f887d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .healthGood strong { color: #168757; }
 .healthBad strong { color: #be4937; }
+.healthUnknown strong { color: #7b8178; }
 
 .progressCard {
   max-width: 1404px;

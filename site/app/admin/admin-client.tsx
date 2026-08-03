@@ -182,22 +182,38 @@ export default function AdminClient({
   const [editingAgentRegions, setEditingAgentRegions] = useState("");
   const [credential, setCredential] = useState<{ id: string; token: string } | null>(null);
   const [soak, setSoak] = useState<SoakReport | null>(null);
+  const [dashboardError, setDashboardError] = useState("");
+  const [dashboardLoadedAt, setDashboardLoadedAt] = useState(0);
+  const [soakError, setSoakError] = useState("");
 
   const refresh = useCallback(async () => {
-    const response = await fetch("/api/admin/scans", { cache: "no-store" });
-    if (!response.ok) throw new Error("後台狀態讀取失敗");
-    setDashboard(await response.json());
+    try {
+      const response = await fetch("/api/admin/scans", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setDashboard(await response.json());
+      setDashboardLoadedAt(Date.now());
+      setDashboardError("");
+    } catch (error) {
+      setDashboardError(`後台狀態暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
+      throw error;
+    }
   }, []);
 
   const refreshMetrics = useCallback(async () => {
-    const response = await fetch("/api/admin/metrics?hours=24", { cache: "no-store" });
-    if (!response.ok) throw new Error("24 小時報表讀取失敗");
-    setSoak(await response.json());
+    try {
+      const response = await fetch("/api/admin/metrics?hours=24", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setSoak(await response.json());
+      setSoakError("");
+    } catch (error) {
+      setSoakError(`24 小時報表暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
+      throw error;
+    }
   }, []);
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
-      refresh().catch((error) => setNotice(String(error)));
+      refresh().catch(() => undefined);
     }, 0);
     const timer = window.setInterval(() => {
       refresh().catch(() => undefined);
@@ -210,7 +226,7 @@ export default function AdminClient({
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
-      refreshMetrics().catch((error) => setNotice(String(error)));
+      refreshMetrics().catch(() => undefined);
     }, 0);
     const timer = window.setInterval(() => {
       refreshMetrics().catch(() => undefined);
@@ -415,31 +431,45 @@ export default function AdminClient({
         </nav>
       </header>
 
+      {dashboardError && (
+        <div className={styles.dataWarning} role="status">
+          <strong>{dashboardError}</strong>
+          <span>{dashboard
+            ? `目前保留最近一次成功結果（${formatTime(dashboardLoadedAt)}）`
+            : "尚未取得有效資料，不會以 0 筆或 0 台 Agent 代替"}</span>
+        </div>
+      )}
+
       <section className={styles.healthGrid}>
-        <article className={dashboard?.fleet.online ? styles.healthGood : styles.healthBad}>
+        <article className={!dashboard ? styles.healthUnknown :
+          dashboard.fleet.online ? styles.healthGood : styles.healthBad}>
           <span>Agent 叢集</span>
-          <strong>{dashboard?.fleet.online ?? 0} / {dashboard?.fleet.total ?? 0} 在線</strong>
+          <strong>{dashboard
+            ? `${dashboard.fleet.online} / ${dashboard.fleet.total} 在線`
+            : "讀取中…"}</strong>
           <small>多節點平行掃描與故障接手</small>
         </article>
         <article>
           <span>目前工作</span>
-          <strong>{job ? statusLabel(job.status) : "尚未建立"}</strong>
-          <small>{job?.message ?? "可建立新的掃描工作"}</small>
+          <strong>{!dashboard ? "讀取中…" : job ? statusLabel(job.status) : "尚未建立"}</strong>
+          <small>{!dashboard ? "等待有效的後台資料" : job?.message ?? "可建立新的掃描工作"}</small>
         </article>
         <article>
           <span>擷取成果</span>
-          <strong>{job?.captured_rows ?? 0} 行</strong>
-          <small>叢集累計上傳 {dashboard?.fleet.uploaded_rows ?? 0} 行</small>
+          <strong>{dashboard ? `${job?.captured_rows ?? 0} 行` : "讀取中…"}</strong>
+          <small>{dashboard ? `叢集累計上傳 ${dashboard.fleet.uploaded_rows} 行` : "等待有效的後台資料"}</small>
         </article>
         <article>
           <span>工作佇列</span>
-          <strong>{dashboard?.target_counts?.leased ?? 0} 執行中</strong>
-          <small>{dashboard?.target_counts?.queued ?? 0} 待派・{dashboard?.target_counts?.completed ?? 0} 完成</small>
+          <strong>{dashboard ? `${dashboard.target_counts?.leased ?? 0} 執行中` : "讀取中…"}</strong>
+          <small>{dashboard
+            ? `${dashboard.target_counts?.queued ?? 0} 待派・${dashboard.target_counts?.completed ?? 0} 完成`
+            : "等待有效的後台資料"}</small>
         </article>
         <article>
           <span>每日自動換區</span>
-          <strong>{dashboard?.rotation.enabled ? "07:30 / 19:30 啟用" : "未啟用"}</strong>
-          <small>下次換區 {formatTime(dashboard?.rotation.next_switch_at ?? 0)}・台北時間</small>
+          <strong>{!dashboard ? "讀取中…" : dashboard.rotation.enabled ? "07:30 / 19:30 啟用" : "未啟用"}</strong>
+          <small>{dashboard ? `下次換區 ${formatTime(dashboard.rotation.next_switch_at)}・台北時間` : "等待有效的後台資料"}</small>
         </article>
         <article className={soak?.verdict === "pass" ? styles.healthGood :
           soak?.verdict === "fail" ? styles.healthBad : undefined}>
@@ -479,12 +509,13 @@ export default function AdminClient({
             <button type="button" onClick={downloadSoak} disabled={!soak}>下載 JSON</button>
           </div>
         </div>
+        {soakError && <p className={styles.inlineWarning}>{soakError}；目前保留最近一次成功報表。</p>}
         <div className={styles.metricSummary}>
-          <div><span>觀測時間</span><strong>{soak?.observed_hours ?? 0} / 24h</strong></div>
-          <div><span>完成掃描點</span><strong>{soak?.fleet.completed_targets ?? 0}</strong></div>
-          <div><span>無資料掃描點</span><strong>{soak?.fleet.no_data_targets ?? 0}</strong></div>
-          <div><span>失敗／租約逾時</span><strong>{soak?.fleet.failed_targets ?? 0} / {soak?.fleet.expired_leases ?? 0}</strong></div>
-          <div><span>平均每點</span><strong>{Math.round((soak?.fleet.average_target_ms ?? 0) / 1000)} 秒</strong></div>
+          <div><span>觀測時間</span><strong>{soak ? `${soak.observed_hours} / 24h` : "—"}</strong></div>
+          <div><span>完成掃描點</span><strong>{soak?.fleet.completed_targets ?? "—"}</strong></div>
+          <div><span>無資料掃描點</span><strong>{soak?.fleet.no_data_targets ?? "—"}</strong></div>
+          <div><span>失敗／租約逾時</span><strong>{soak ? `${soak.fleet.failed_targets} / ${soak.fleet.expired_leases}` : "—"}</strong></div>
+          <div><span>平均每點</span><strong>{soak ? `${Math.round(soak.fleet.average_target_ms / 1000)} 秒` : "—"}</strong></div>
         </div>
         <div className={styles.metricAgents}>
           {soak?.agents.map((agent) => (
@@ -586,7 +617,8 @@ export default function AdminClient({
               </div>
             </article>
           ))}
-          {!dashboard?.agents.length && <p className={styles.empty}>尚未建立 Agent</p>}
+          {!dashboard && <p className={styles.empty}>Agent 資料讀取中，不顯示推測結果</p>}
+          {dashboard && !dashboard.agents.length && <p className={styles.empty}>尚未建立 Agent</p>}
         </div>
         <div className={styles.enroll}>
           <label><span>新節點名稱</span>
@@ -710,9 +742,10 @@ export default function AdminClient({
             <strong>{estimate.cities} 城市・約 {estimate.points.toLocaleString()} 點・單輪 {estimate.hours.toFixed(1)} 小時</strong>
           </div>
           {notice && <p className={styles.notice}>{notice}</p>}
-          <button className={styles.startButton} disabled={busy || active || !dashboard?.fleet.online}
+          <button className={styles.startButton} disabled={busy || active || !dashboard?.fleet.online || Boolean(dashboardError)}
             onClick={start}>
-            {active ? "目前已有掃描工作" : dashboard?.fleet.online ? "開始分散式掃描" : "等待 Agent 上線"}
+            {!dashboard ? "等待有效的後台資料" : dashboardError ? "後台資料恢復後可操作" :
+              active ? "目前已有掃描工作" : dashboard.fleet.online ? "開始分散式掃描" : "等待 Agent 上線"}
           </button>
         </section>
 
@@ -727,7 +760,7 @@ export default function AdminClient({
                 <time>{formatTime(log.at)}</time>
                 <p>{log.message}</p>
               </div>
-            )) : <p className={styles.empty}>尚無掃描紀錄</p>}
+            )) : <p className={styles.empty}>{dashboard ? "尚無掃描紀錄" : "掃描紀錄讀取中"}</p>}
           </div>
         </section>
       </div>
