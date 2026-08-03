@@ -8,7 +8,10 @@ import {
 
 export const PRIMARY_AGENT_ID = "primary";
 export const AGENT_ONLINE_MS = 15_000;
-const LEASE_MS = 6 * 60_000;
+// A slow phone can spend 120s cooling down and up to 180s in the cold-restart
+// fallback. Twelve minutes leaves room for transient control-endpoint failures
+// without allowing another Agent to reclaim a target that is still scanning.
+const LEASE_MS = 12 * 60_000;
 
 export type ScanAgentRow = {
   id: string;

@@ -68,7 +68,53 @@ async function patchColumns(db: RuntimeEnv["DB"]) {
   columnsPatched = true;
 }
 
-export async function ensureSchema() {
+type SchemaProbeRow = {
+  agent_state_ready: number;
+  scanner_status_ready: number;
+  rotation_ready: number;
+  primary_ready: number;
+};
+
+function missingSchema(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /no such (?:table|column)|has no column named/i.test(message);
+}
+
+async function probeSchema(db: RuntimeEnv["DB"]) {
+  try {
+    // Keep the normal production path read-only and cheap. The scalar column
+    // references make SQLite validate every runtime-patched column even when a
+    // table currently has no rows. Full DDL initialization is only needed for
+    // a genuinely new or incomplete database, not for every Worker isolate.
+    const row = await db.prepare(`SELECT
+        EXISTS(SELECT 1 FROM agent_state WHERE id=1) AS agent_state_ready,
+        EXISTS(SELECT 1 FROM scanner_status WHERE id=1) AS scanner_status_ready,
+        EXISTS(SELECT 1 FROM scan_rotation_settings WHERE id=1) AS rotation_ready,
+        EXISTS(SELECT 1 FROM scan_agents WHERE id='primary') AS primary_ready,
+        (SELECT paused || game_version || module_version || last_data_at ||
+          last_target_at || no_data_streak || previous_token_hash ||
+          previous_token_expires_at || token_rotated_at
+          FROM scan_agents LIMIT 1) AS agent_shape,
+        (SELECT leased_at || completed_agent_id || priority || required_agent_id ||
+          verification_batch || verification_mushroom_id || verification_kind
+          FROM scan_targets LIMIT 1) AS target_shape,
+        (SELECT id FROM mushrooms LIMIT 1) AS mushroom_shape,
+        (SELECT id FROM scan_jobs LIMIT 1) AS job_shape,
+        (SELECT id FROM scan_logs LIMIT 1) AS log_shape,
+        (SELECT id FROM scan_agent_events LIMIT 1) AS event_shape,
+        (SELECT schedule_date FROM scan_rotation_runs LIMIT 1) AS rotation_run_shape`)
+      .first<SchemaProbeRow>();
+    return Boolean(row?.agent_state_ready && row.scanner_status_ready &&
+      row.rotation_ready && row.primary_ready);
+  } catch (error) {
+    if (missingSchema(error)) return false;
+    // A transient D1 failure must fail this request rather than trigger dozens
+    // of DDL statements and amplify an already overloaded database.
+    throw error;
+  }
+}
+
+async function initializeSchema() {
   const db = runtime().DB;
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS mushrooms (
@@ -266,6 +312,27 @@ export async function ensureSchema() {
       uploaded_rows, uploaded_bytes, partial_text, ?, ?
       FROM agent_state WHERE id=1`).bind(now, now),
   ]);
+}
+
+let schemaReady: Promise<void> | null = null;
+
+export async function ensureSchema() {
+  if (schemaReady) return schemaReady;
+  const attempt = (async () => {
+    const db = runtime().DB;
+    if (await probeSchema(db)) {
+      columnsPatched = true;
+      return;
+    }
+    await initializeSchema();
+  })();
+  schemaReady = attempt;
+  try {
+    await attempt;
+  } catch (error) {
+    if (schemaReady === attempt) schemaReady = null;
+    throw error;
+  }
 }
 
 export function safeEqual(a: string, b: string) {

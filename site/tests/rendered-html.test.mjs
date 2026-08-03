@@ -109,6 +109,9 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(schema, /scanAgents/);
   assert.match(schema, /scanTargets/);
   assert.match(cloud, /CREATE TABLE IF NOT EXISTS scan_jobs/);
+  assert.match(cloud, /async function probeSchema/);
+  assert.match(cloud, /let schemaReady: Promise<void> \| null = null/);
+  assert.match(cloud, /transient D1 failure must fail this request/);
   assert.match(cloud, /ADMIN_EMAILS/);
   assert.match(plan, /COUNTRY_PACK_CATALOG/);
   assert.match(plan, /name: "瑞典", region: "北歐"/);
@@ -127,6 +130,7 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.doesNotMatch(plan, /CITY_CHOICES|cityIds/);
   assert.match(plan, /buildScanPlan/);
   assert.match(fleet, /releaseExpiredLeases/);
+  assert.match(fleet, /const LEASE_MS = 12 \* 60_000/);
   assert.match(fleet, /lease_token/);
   assert.match(fleet, /CASE country/);
   assert.match(fleet, /tags\.map\(\(_.*, index\) => `WHEN \? THEN \$\{index\}`\)/);
@@ -152,6 +156,8 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(agentAction, /每日自動換區已啟用/);
   assert.match(adminClient, /繼續掃描/);
   assert.match(adminClient, /套用北歐五國/);
+  assert.match(adminClient, /尚未取得有效資料，不會以 0 筆或 0 台 Agent 代替/);
+  assert.match(adminClient, /目前保留最近一次成功結果/);
   assert.match(pauseMigration, /ADD `paused` integer DEFAULT 0 NOT NULL/);
   assert.match(rotationMigration, /CREATE TABLE `scan_rotation_runs`/);
   assert.match(cloud, /SELECT paused FROM scan_agents LIMIT 1/);
