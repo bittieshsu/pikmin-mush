@@ -292,6 +292,22 @@ export default function AdminClient({
     }
   };
 
+  const redeployFleet = async () => {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/rotation/redeploy", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "重新分配失敗");
+      setNotice(`已重新分配：${result.regions} 城市、${result.points} 點；原定換區時間不變`);
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const enrollAgent = async () => {
     setBusy(true);
     setNotice("");
@@ -447,6 +463,8 @@ export default function AdminClient({
                 ? <button className={styles.primary} onClick={() => action("resume")} disabled={busy}>繼續</button> : null}
               {active
                 ? <button className={styles.danger} onClick={() => action("stop")} disabled={busy}>停止</button> : null}
+              {active && dashboard?.rotation.enabled
+                ? <button className={styles.primary} onClick={redeployFleet} disabled={busy}>立即換區</button> : null}
             </div>
           </div>
           <div className={styles.progressTrack}><i style={{ width: `${progress}%` }} /></div>
