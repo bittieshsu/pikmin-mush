@@ -31,6 +31,8 @@ test("ships the public mushroom map and protected scan console", async () => {
   assert.match(adminPage, /isAdminEmail/);
   assert.match(adminClient, /建立掃描工作/);
   assert.match(adminClient, /api\/admin\/scans\/start/);
+  assert.match(adminClient, /api\/admin\/rotation\/redeploy/);
+  assert.match(adminClient, /立即換區/);
   assert.match(adminClient, /暫停/);
   assert.match(adminClient, /持續循環/);
   assert.match(adminClient, /全球掃描節點/);
