@@ -19,7 +19,7 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-const MAP_SCRIPT_HASH = "'sha256-mGlKHujXMLiA3sdK5MYCg3GCFsrlJHI5UCcfcrl7uOg='";
+const MAP_SCRIPT_HASH = "'sha256-p3w8ZX7sPmxypGHTqUt4AzAtw+Jt+xqmUlWD8cEY6D0='";
 
 function withSecurityHeaders(response: Response, strictMap = false) {
   const secured = new Response(response.body, response);
