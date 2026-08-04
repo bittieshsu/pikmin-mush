@@ -28,6 +28,7 @@ MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-40}"
+QUERY_ONLY_RESTART_STREAK="${QUERY_ONLY_RESTART_STREAK:-12}"
 DISPLAY_QUERY_TIMEOUT_SECONDS="${DISPLAY_QUERY_TIMEOUT_SECONDS:-5}"
 STARTUP_TAP_X="${STARTUP_TAP_X:-0}"
 STARTUP_WARNING_Y="${STARTUP_WARNING_Y:-0}"
@@ -39,6 +40,7 @@ AGENT_VERSION="${AGENT_VERSION:-2.1.0}"
 GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
   sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')}"
 MODULE_VERSION="${MODULE_VERSION:-150.0}"
+QUERY_ONLY_STREAK=0
 [ -n "$TOKEN" ] || TOKEN="$(cat "$MODDIR/token" 2>/dev/null)"
 if [ -z "$TOKEN" ]; then
   echo "[agent] missing token"
@@ -275,11 +277,13 @@ wait_for_map_refresh() {
   REFRESH_JOB="$2"
   REFRESH_LEFT="$(number_or_zero "${3:-$MAP_REFRESH_TIMEOUT_SECONDS}")"
   REFRESH_PHASE="${4:-direct}"
+  REFRESH_SOURCE=""
   REFRESH_TOTAL="$REFRESH_LEFT"
   QUERY_SEEN_AT=0
   while [ "$REFRESH_LEFT" -gt 0 ]; do
     refresh_local_pause && return 2
     if refresh_marker_matches "$SCAN_READY" "$REFRESH_TOKEN"; then
+      REFRESH_SOURCE="object"
       echo "[scan] $REFRESH_PHASE refresh ready target=$REFRESH_TOKEN source=object"
       return 0
     fi
@@ -287,6 +291,7 @@ wait_for_map_refresh() {
       [ "$QUERY_SEEN_AT" -eq 0 ] && QUERY_SEEN_AT="$REFRESH_LEFT"
       QUERY_AGE=$((QUERY_SEEN_AT - REFRESH_LEFT))
       if [ "$QUERY_AGE" -ge "$(number_or_zero "$MAP_REFRESH_SETTLE_SECONDS")" ]; then
+        REFRESH_SOURCE="query"
         echo "[scan] $REFRESH_PHASE refresh ready target=$REFRESH_TOKEN source=query"
         return 0
       fi
@@ -457,6 +462,30 @@ execute_scan_task() {
   NEW_ROWS=$((AFTER_LINES - BEFORE_LINES))
   [ "$NEW_BYTES" -lt 0 ] && NEW_BYTES=0
   [ "$NEW_ROWS" -lt 0 ] && NEW_ROWS=0
+  if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 1 ]; then
+    if [ "$REFRESH_SOURCE" = "query" ] && [ "$NEW_ROWS" -eq 0 ]; then
+      QUERY_ONLY_STREAK=$((QUERY_ONLY_STREAK + 1))
+      echo "[scan] query-only empty streak=$QUERY_ONLY_STREAK/$QUERY_ONLY_RESTART_STREAK"
+      if [ "$QUERY_ONLY_STREAK" -ge "$(number_or_zero "$QUERY_ONLY_RESTART_STREAK")" ]; then
+        echo "[scan] query-only streak reached; cold restarting game at current GPS"
+        if restart_game_for_scan "$JOB_ID" "$REFRESH_TOKEN"; then
+          upload_new
+          AFTER_SIZE="$(file_size)"
+          AFTER_LINES="$(useful_line_count)"
+          NEW_BYTES=$((AFTER_SIZE - BEFORE_SIZE))
+          NEW_ROWS=$((AFTER_LINES - BEFORE_LINES))
+          [ "$NEW_BYTES" -lt 0 ] && NEW_BYTES=0
+          [ "$NEW_ROWS" -lt 0 ] && NEW_ROWS=0
+          echo "[scan] query-only recovery captured rows=+$NEW_ROWS bytes=+$NEW_BYTES"
+        else
+          echo "[scan] query-only recovery restart failed or was interrupted"
+        fi
+        QUERY_ONLY_STREAK=0
+      fi
+    else
+      QUERY_ONLY_STREAK=0
+    fi
+  fi
   if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 0 ]; then
     echo "[scan] direct refresh unavailable; using cold restart fallback"
     if restart_game_for_scan "$JOB_ID" "$REFRESH_TOKEN"; then
@@ -468,6 +497,7 @@ execute_scan_task() {
       [ "$NEW_BYTES" -lt 0 ] && NEW_BYTES=0
       [ "$NEW_ROWS" -lt 0 ] && NEW_ROWS=0
       echo "[scan] fallback captured rows=+$NEW_ROWS bytes=+$NEW_BYTES"
+      QUERY_ONLY_STREAK=0
     else
       echo "[scan] fallback restart failed or was interrupted"
     fi

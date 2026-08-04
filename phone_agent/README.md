@@ -21,6 +21,9 @@ virtual display 可使用 `STARTUP_TAP_X=360`、`STARTUP_WARNING_Y=835`、
 `STARTUP_CONTINUE_Y=752` 與 `STARTUP_LOGIN_CONTINUE_Y=860` 自動解除安全提示並恢復。
 Pikmin 150.0 的地圖查詢還需要 Android 系統位置；專用掃描手機應設定
 `SYSTEM_GPS_OVERRIDE=1`，Agent 會讓系統 GPS 與每個掃描 target 同步。
+若 map-query marker 持續成功、卻沒有 map-object marker 或有效 TSV 資料，
+`QUERY_ONLY_RESTART_STREAK` 會在連續指定點數後冷重啟遊戲；預設為 12，
+已知容易進入 query-only 狀態的裝置可使用較低門檻，例如 Agent 3 設為 3。
 
 所有 Agent API 都要求 `Authorization: Bearer <token>` 與 `X-Agent-Id`。
 Agent 2.1 另回報 `X-Agent-Version`、`X-Game-Version` 與 `X-Module-Version`；
