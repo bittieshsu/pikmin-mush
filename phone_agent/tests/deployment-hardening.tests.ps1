@@ -54,5 +54,9 @@ Assert-Contains $agent 'DISPLAY_QUERY_TIMEOUT_SECONDS' `
     'Agent display discovery must have a configurable timeout.'
 Assert-Contains $agent 'timeout -k 2 "\$DISPLAY_QUERY_TIMEOUT_SECONDS"' `
     'Agent display discovery can block forever without a bounded command.'
+Assert-Contains $agent 'dumpsys display' `
+    'Agent display discovery is missing the Android 12 fallback.'
+Assert-Contains $agent 'mDisplayId=\$DISPLAY_ID' `
+    'Android 12 display fallback does not verify the requested display id.'
 
 Write-Host 'Deployment hardening regression tests passed.'

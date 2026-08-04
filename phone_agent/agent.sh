@@ -153,8 +153,15 @@ game_display_id() {
   DISPLAY_ID="$(cat "$DISPLAY_FILE" 2>/dev/null)"
   case "$DISPLAY_ID" in ''|*[!0-9]*) return 1 ;; esac
   DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
-    su -Z u:r:shell:s0 2000 -c "cmd display get-displays" 2>/dev/null)" || return 1
-  echo "$DISPLAY_LIST" | grep -q "Display id $DISPLAY_ID:" || return 1
+    su -Z u:r:shell:s0 2000 -c "cmd display get-displays" 2>/dev/null)" || DISPLAY_LIST=""
+  if ! echo "$DISPLAY_LIST" | grep -q "Display id $DISPLAY_ID:"; then
+    # Android 12 does not implement `cmd display get-displays`. Fall back to
+    # DisplayManagerService so a valid virtual display is not mistaken for a
+    # missing one and the game is never launched on the physical screen.
+    DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
+      su -Z u:r:shell:s0 2000 -c "dumpsys display" 2>/dev/null)" || return 1
+    echo "$DISPLAY_LIST" | grep -q "mDisplayId=$DISPLAY_ID" || return 1
+  fi
   echo "$DISPLAY_ID"
 }
 
