@@ -21,7 +21,7 @@ test("ships the public mushroom map and protected scan console", async () => {
   assert.match(map, /api\/mushrooms/);
   assert.doesNotMatch(map, /id="lv1"/);
   assert.match(map, /\[2,3,4\]/);
-  assert.match(map, /EVENT_TYPE_IDS=new Set\(\['15','21','24'\]\)/);
+  assert.match(map, /EVENT_TYPE_IDS=new Set\(\['15','21','23','24'\]\)/);
   assert.match(map, /DEFAULT_HIDDEN_TYPE_KEYS=new Set\(\['event'\]\)/);
   assert.match(map, /selectedTypes\.has\(typeKey\(m\.type\)\)/);
   assert.match(map, /integrity="sha256-/);
