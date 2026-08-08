@@ -145,7 +145,12 @@ export async function POST(request: Request) {
     WHERE required_agent_id=? AND verification_kind=?
       AND verification_batch<>? AND status='queued'`)
     .bind(now, agentId, kind, batch).run();
-  await db.batch(inserts);
+  // A two-day giant recheck can contain far more rows than a notification
+  // batch. Keep each D1 batch bounded so one busy report cannot exceed the
+  // statement limit and silently leave Agent1 without its follow-up queue.
+  for (let offset = 0; offset < inserts.length; offset += 50) {
+    await db.batch(inserts.slice(offset, offset + 50));
+  }
   return noStoreJson({
     ok: true,
     batch,
