@@ -343,9 +343,13 @@ async function finishJobIfDone(job: ScanJobRow) {
   return false;
 }
 
-async function candidateTarget(job: ScanJobRow, agent: ScanAgentRow) {
+async function candidateTarget(
+  job: ScanJobRow,
+  agent: ScanAgentRow,
+  ignoreRegion = false,
+) {
   const db = runtime().DB;
-  const tags = parseTags(agent);
+  const tags = ignoreRegion ? [] : parseTags(agent);
   const location = agent.current_lat == null ? null :
     { lat: Number(agent.current_lat), lng: Number(agent.current_lng) };
   const tagFilter = tags.length
@@ -412,7 +416,12 @@ export async function claimTask(agent: ScanAgentRow): Promise<ClaimedTask | null
   let leaseToken = target?.lease_token ?? "";
   if (!target) {
     for (let attempt = 0; attempt < 4 && !target; attempt += 1) {
-      const candidate = await candidateTarget(job, agent);
+      // Prefer the Agent's assigned country packs.  If a route/tag drift
+      // leaves it with no matching point, fall back to any unleased regular
+      // target so a healthy phone never idles behind a full queue.  The
+      // conditional lease update below remains the single ownership guard.
+      const candidate = await candidateTarget(job, agent) ??
+        await candidateTarget(job, agent, true);
       if (!candidate) break;
       leaseToken = randomHex(18);
       const claimed = await db.prepare(`UPDATE scan_targets SET
