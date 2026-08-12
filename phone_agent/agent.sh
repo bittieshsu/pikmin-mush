@@ -36,6 +36,14 @@ STARTUP_WARNING_Y="${STARTUP_WARNING_Y:-0}"
 STARTUP_CONTINUE_Y="${STARTUP_CONTINUE_Y:-0}"
 STARTUP_LOGIN_CONTINUE_Y="${STARTUP_LOGIN_CONTINUE_Y:-0}"
 SYSTEM_GPS_OVERRIDE="${SYSTEM_GPS_OVERRIDE:-0}"
+# Android 9 does not expose the newer `cmd location providers` shell command.
+# When configured, a local explicit-only bridge App owns the mock-location
+# AppOp and writes the GPS test provider for this Agent.
+GPS_BRIDGE_PACKAGE="${GPS_BRIDGE_PACKAGE:-}"
+MAGISK_SU="${MAGISK_SU:-/sbin/su}"
+if [ ! -x "$MAGISK_SU" ]; then
+  MAGISK_SU="$(command -v su 2>/dev/null)"
+fi
 AGENT_ID="${AGENT_ID:-primary}"
 AGENT_VERSION="${AGENT_VERSION:-2.1.0}"
 GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
@@ -61,27 +69,53 @@ auth_curl() {
     -H "X-Module-Version: $MODULE_VERSION" "$@"
 }
 
+# Magisk service scripts run as root but often inherit a minimal PATH.  Every
+# UI/location command must still execute as Android's shell UID, with the
+# platform command path restored.  Without this helper Android 9 accepts the
+# Agent loop but silently leaves Pikmin on its startup overlay.
+run_as_shell() {
+  [ -n "$MAGISK_SU" ] && [ -x "$MAGISK_SU" ] || return 127
+  "$MAGISK_SU" -Z u:r:shell:s0 2000 -c \
+    "PATH=/system/bin:/system/xbin:/vendor/bin:/sbin; export PATH; $1"
+}
+
 ensure_system_gps_provider() {
   [ "$SYSTEM_GPS_OVERRIDE" = "1" ] || return 0
   appops set 2000 android:mock_location allow >/dev/null 2>&1 || return 1
-  su -Z u:r:shell:s0 2000 -c \
+  run_as_shell \
     "cmd location providers add-test-provider gps --requiresSatellite --supportsAltitude --supportsSpeed --supportsBearing --powerRequirement 3" \
     >/dev/null 2>&1 || true
-  su -Z u:r:shell:s0 2000 -c \
+  run_as_shell \
     "cmd location providers set-test-provider-enabled gps true" \
     >/dev/null 2>&1
 }
 
 set_system_gps() {
-  [ "$SYSTEM_GPS_OVERRIDE" = "1" ] || return 0
   SYSTEM_LAT="$1"
   SYSTEM_LNG="$2"
   case "$SYSTEM_LAT,$SYSTEM_LNG" in
     *[!0-9+.,-]*) return 1 ;;
   esac
-  su -Z u:r:shell:s0 2000 -c \
-    "cmd location providers set-test-provider-location gps --location $SYSTEM_LAT,$SYSTEM_LNG --accuracy 3" \
-    >/dev/null 2>&1
+  if [ "$SYSTEM_GPS_OVERRIDE" = "1" ]; then
+    run_as_shell \
+      "cmd location providers set-test-provider-location gps --location $SYSTEM_LAT,$SYSTEM_LNG --accuracy 3" \
+      >/dev/null 2>&1 || return 1
+  fi
+  [ -n "$GPS_BRIDGE_PACKAGE" ] || return 0
+  BRIDGE_TOKEN="$(date +%s)$$"
+  # The bridge is explicit-only and has no network permission. Its package
+  # owns the Android mock-location AppOp, so Android 9 can receive the same
+  # system GPS updates as newer Agents without relying on `cmd location`.
+  BRIDGE_OUTPUT="$(run_as_shell \
+    "am broadcast --user 0 -n $GPS_BRIDGE_PACKAGE/.GpsCommandReceiver \
+      -a $GPS_BRIDGE_PACKAGE.SET_LOCATION --es lat $SYSTEM_LAT --es lng $SYSTEM_LNG \
+      --es token $BRIDGE_TOKEN" 2>&1)" || return 1
+  # Android 9's ActivityManager reports -1 only when the receiver completed
+  # successfully. Do not ACK a phantom move when the bridge rejected a write.
+  echo "$BRIDGE_OUTPUT" | grep -q 'result=-1' || {
+    echo "[scan] GPS bridge rejected location: $BRIDGE_OUTPUT"
+    return 1
+  }
 }
 
 refresh_local_pause() {
@@ -154,13 +188,13 @@ game_display_id() {
   DISPLAY_ID="$(cat "$DISPLAY_FILE" 2>/dev/null)"
   case "$DISPLAY_ID" in ''|*[!0-9]*) return 1 ;; esac
   DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
-    su -Z u:r:shell:s0 2000 -c "cmd display get-displays" 2>/dev/null)" || DISPLAY_LIST=""
+    run_as_shell "cmd display get-displays" 2>/dev/null)" || DISPLAY_LIST=""
   if ! echo "$DISPLAY_LIST" | grep -q "Display id $DISPLAY_ID:"; then
     # Android 12 does not implement `cmd display get-displays`. Fall back to
     # DisplayManagerService so a valid virtual display is not mistaken for a
     # missing one and the game is never launched on the physical screen.
     DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
-      su -Z u:r:shell:s0 2000 -c "dumpsys display" 2>/dev/null)" || return 1
+      run_as_shell "dumpsys display" 2>/dev/null)" || return 1
     echo "$DISPLAY_LIST" | grep -q "mDisplayId=$DISPLAY_ID" || return 1
   fi
   echo "$DISPLAY_ID"
@@ -190,10 +224,10 @@ launch_game() {
     DISPLAY_ID="$(game_display_id)"
   fi
   if [ -n "$DISPLAY_ID" ]; then
-    su -Z u:r:shell:s0 2000 -c \
+    run_as_shell \
       "am start --display $DISPLAY_ID -n $PKG/$GAME_ACTIVITY" >/dev/null 2>&1
   else
-    su -Z u:r:shell:s0 2000 -c \
+    run_as_shell \
       "monkey -p $PKG -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
   fi
 }
@@ -206,10 +240,10 @@ game_keyevent() {
     return 1
   fi
   if [ -n "$DISPLAY_ID" ]; then
-    su -Z u:r:shell:s0 2000 -c \
+    run_as_shell \
       "input -d $DISPLAY_ID keyevent $KEY_NAME" >/dev/null 2>&1
   else
-    su -Z u:r:shell:s0 2000 -c \
+    run_as_shell \
       "input keyevent $KEY_NAME" >/dev/null 2>&1
   fi
 }
@@ -225,15 +259,15 @@ game_tap() {
     return 1
   fi
   if [ -n "$DISPLAY_ID" ]; then
-    su -Z u:r:shell:s0 2000 -c "input -d $DISPLAY_ID tap $TAP_X $TAP_Y" \
+    run_as_shell "input -d $DISPLAY_ID tap $TAP_X $TAP_Y" \
       >/dev/null 2>&1
   else
-    su -Z u:r:shell:s0 2000 -c "input tap $TAP_X $TAP_Y" >/dev/null 2>&1
+    run_as_shell "input tap $TAP_X $TAP_Y" >/dev/null 2>&1
   fi
 }
 
 game_is_resumed() {
-  su -Z u:r:shell:s0 2000 -c "dumpsys activity activities" 2>/dev/null |
+  run_as_shell "dumpsys activity activities" 2>/dev/null |
     grep -E 'topResumedActivity|ResumedActivity:' |
     grep -q "$PKG"
 }
@@ -241,7 +275,7 @@ game_is_resumed() {
 game_is_on_display() {
   EXPECTED_DISPLAY_ID="$1"
   case "$EXPECTED_DISPLAY_ID" in ''|*[!0-9]*) return 1 ;; esac
-  su -Z u:r:shell:s0 2000 -c "am stack list" 2>/dev/null |
+  run_as_shell "am stack list" 2>/dev/null |
     awk -v wanted="$EXPECTED_DISPLAY_ID" -v package="$PKG" '
       /RootTask id=/ {
         on_display = index($0, "displayId=" wanted " ") > 0 ||
@@ -261,21 +295,23 @@ ensure_game_running() {
     if pidof "$PKG" >/dev/null 2>&1 &&
         ! game_is_on_display "$EXPECTED_DISPLAY_ID"; then
       echo "[display] game is on the wrong display; recreating on id=$EXPECTED_DISPLAY_ID"
-      su -Z u:r:shell:s0 2000 -c "am force-stop $PKG" >/dev/null 2>&1
+      run_as_shell "am force-stop $PKG" >/dev/null 2>&1
       sleep 2
     fi
   fi
   if ! pidof "$PKG" >/dev/null 2>&1; then
     launch_game || return 1
     sleep 25
-    game_keyevent KEYCODE_ENTER
-    game_keyevent KEYCODE_DPAD_CENTER
-    return
-  fi
-  if ! game_is_resumed; then
+  elif ! game_is_resumed; then
     launch_game || return 1
     sleep 8
   fi
+  # Android 9 can report the Unity activity as resumed while the game still
+  # displays a touch-only startup or speed-warning overlay. These are harmless
+  # no-ops on the live map and make every scan point self-healing after a
+  # reboot/session restart.
+  game_keyevent KEYCODE_ENTER || true
+  game_keyevent KEYCODE_DPAD_CENTER || true
 }
 
 number_or_zero() {
@@ -392,7 +428,7 @@ restart_game_for_scan() {
   RESTART_JOB="$1"
   RESTART_TOKEN="$2"
   echo "[scan] no new rows, restarting game session at current GPS"
-  su -Z u:r:shell:s0 2000 -c "am force-stop $PKG" >/dev/null 2>&1
+  run_as_shell "am force-stop $PKG" >/dev/null 2>&1
   sleep 2
   if [ "$MAP_REFRESH_EXPERIMENT" = "1" ]; then
     rm -f "$SCAN_READY" "$QUERY_READY"
@@ -634,7 +670,7 @@ execute_command() {
       ;;
     restart)
       OLD_PID="$(pidof "$PKG" 2>/dev/null)"
-      su -Z u:r:shell:s0 2000 -c "am force-stop $PKG"
+      run_as_shell "am force-stop $PKG"
       sleep 2
       if ! launch_game; then
         ack "$seq" 0 "" ""
