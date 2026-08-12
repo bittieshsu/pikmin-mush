@@ -239,7 +239,13 @@ export async function redeployDailyRotation(now = Date.now()) {
       AND status IN ('queued','leased')`)
     .first<{ count: number }>();
   if (Number(pendingVerification?.count ?? 0) > 0) {
-    throw new Error("通知複查仍在進行，完成後才能重新分配");
+    // A deliberate manual redeploy means the operator chose scanning coverage
+    // over an in-flight notification check.  Cancel only verification targets;
+    // ordinary scan targets are replaced below by the new route plan.
+    await db.prepare(`UPDATE scan_targets SET status='cancelled', lease_agent_id='',
+      lease_token='', lease_expires_at=0, updated_at=?
+      WHERE verification_kind='candidate' AND status IN ('queued','leased')`)
+      .bind(now).run();
   }
 
   const planned = planManualRedeploy(agents.results.map((agent) => agent.id), now);
