@@ -190,19 +190,6 @@ export async function touchAgent(
   });
 }
 
-function distanceKm(
-  a: { lat: number; lng: number },
-  b: { lat: number; lng: number },
-) {
-  const radius = 6371;
-  const dlat = (b.lat - a.lat) * Math.PI / 180;
-  const dlng = (b.lng - a.lng) * Math.PI / 180;
-  const x = Math.sin(dlat / 2) ** 2 +
-    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
-    Math.sin(dlng / 2) ** 2;
-  return radius * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
 function parseTags(row: ScanAgentRow) {
   try {
     const tags = JSON.parse(row.region_tags_json);
@@ -446,12 +433,10 @@ export async function claimTask(agent: ScanAgentRow): Promise<ClaimedTask | null
   }
 
   const config = parseJobConfig(job);
-  const location = agent.current_lat == null ? null :
-    { lat: Number(agent.current_lat), lng: Number(agent.current_lng) };
-  const distanceCooldown = location
-    ? Math.min(120, Math.round(distanceKm(location, { lat: target.lat, lng: target.lng }) / 10))
-    : 0;
-  const cooldownS = Math.max(Number(target.base_cooldown_s), distanceCooldown);
+  // The scan plan owns cooldown policy.  Do not reintroduce a distance-based
+  // delay while leasing: it silently overrides the admin's selected value and
+  // makes inter-city/continental assignments wait up to 120 seconds again.
+  const cooldownS = Number(target.base_cooldown_s);
   await db.batch([
     db.prepare(`UPDATE scan_jobs SET status='running',
       started_at=CASE WHEN started_at=0 THEN ? ELSE started_at END,
