@@ -258,3 +258,103 @@ export async function buildSoakReport(hours = 24) {
     agents: reports,
   };
 }
+
+type JobEfficiencyEventRow = {
+  agent_id: string;
+  completed_targets: number;
+  failed_targets: number;
+  no_data_targets: number;
+  captured_rows: number;
+  captured_bytes: number;
+  average_target_ms: number;
+  first_event_at: number;
+  last_event_at: number;
+};
+
+/**
+ * Report actual fleet output for one scan job.  scan_targets is reset between
+ * loop cycles, so this deliberately aggregates the immutable event stream
+ * instead of the mutable queue rows.
+ */
+export async function buildJobEfficiencyReport(jobId: number) {
+  const db = runtime().DB;
+  const [job, agents, events] = await Promise.all([
+    db.prepare(`SELECT id, status, total_points, cycle, loop, created_at,
+        updated_at, started_at, finished_at, captured_rows, captured_bytes
+      FROM scan_jobs WHERE id=?`).bind(jobId).first<{
+        id: number; status: string; total_points: number; cycle: number; loop: number;
+        created_at: number; updated_at: number; started_at: number; finished_at: number;
+        captured_rows: number; captured_bytes: number;
+      }>(),
+    db.prepare("SELECT id, display_name, enabled FROM scan_agents ORDER BY enabled DESC, id")
+      .all<{ id: string; display_name: string; enabled: number }>(),
+    db.prepare(`SELECT agent_id,
+        SUM(CASE WHEN event_type='target_completed' THEN 1 ELSE 0 END) AS completed_targets,
+        SUM(CASE WHEN event_type='target_failed' THEN 1 ELSE 0 END) AS failed_targets,
+        SUM(CASE WHEN event_type='target_no_data' THEN 1 ELSE 0 END) AS no_data_targets,
+        SUM(CASE WHEN event_type='target_completed' THEN rows ELSE 0 END) AS captured_rows,
+        SUM(CASE WHEN event_type='target_completed' THEN bytes ELSE 0 END) AS captured_bytes,
+        AVG(CASE WHEN event_type='target_completed' THEN duration_ms END) AS average_target_ms,
+        MIN(at) AS first_event_at, MAX(at) AS last_event_at
+      FROM scan_agent_events WHERE job_id=?
+      GROUP BY agent_id`).bind(jobId).all<JobEfficiencyEventRow>(),
+  ]);
+  if (!job) return null;
+  const byAgent = new Map(events.results.map((event) => [event.agent_id, event]));
+  const reportAgents = agents.results.map((agent) => {
+    const event = byAgent.get(agent.id);
+    const completed = Number(event?.completed_targets ?? 0);
+    const failed = Number(event?.failed_targets ?? 0);
+    const noData = Number(event?.no_data_targets ?? 0);
+    const rows = Number(event?.captured_rows ?? 0);
+    const first = Number(event?.first_event_at ?? 0);
+    const last = Number(event?.last_event_at ?? 0);
+    const elapsedMs = first && last ? Math.max(0, last - first) : 0;
+    const attempts = completed + failed;
+    return {
+      id: agent.id,
+      name: agent.display_name,
+      enabled: Boolean(agent.enabled),
+      completed_targets: completed,
+      failed_targets: failed,
+      no_data_targets: noData,
+      captured_rows: rows,
+      captured_bytes: Number(event?.captured_bytes ?? 0),
+      average_target_ms: Math.round(Number(event?.average_target_ms ?? 0)),
+      first_event_at: first,
+      last_event_at: last,
+      elapsed_ms: elapsedMs,
+      points_per_hour: elapsedMs > 0 ? Math.round(completed / (elapsedMs / 3_600_000) * 10) / 10 : 0,
+      data_target_percent: completed ? Math.round((completed - noData) / completed * 1000) / 10 : 0,
+      failure_percent: attempts ? Math.round(failed / attempts * 1000) / 10 : 0,
+    };
+  });
+  const earliest = reportAgents.reduce((value, agent) => agent.first_event_at &&
+    (!value || agent.first_event_at < value) ? agent.first_event_at : value, 0);
+  const latest = reportAgents.reduce((value, agent) => agent.last_event_at > value ? agent.last_event_at : value, 0);
+  const elapsedMs = earliest && latest ? Math.max(0, latest - earliest) : 0;
+  const completed = reportAgents.reduce((sum, agent) => sum + agent.completed_targets, 0);
+  const failed = reportAgents.reduce((sum, agent) => sum + agent.failed_targets, 0);
+  const noData = reportAgents.reduce((sum, agent) => sum + agent.no_data_targets, 0);
+  return {
+    generated_at: Date.now(),
+    job: {
+      id: Number(job.id), status: job.status, total_points: Number(job.total_points),
+      cycle: Number(job.cycle), loop: Boolean(job.loop), created_at: Number(job.created_at),
+      updated_at: Number(job.updated_at), started_at: Number(job.started_at),
+      finished_at: Number(job.finished_at),
+    },
+    fleet: {
+      completed_targets: completed,
+      failed_targets: failed,
+      no_data_targets: noData,
+      captured_rows: reportAgents.reduce((sum, agent) => sum + agent.captured_rows, 0),
+      captured_bytes: reportAgents.reduce((sum, agent) => sum + agent.captured_bytes, 0),
+      elapsed_ms: elapsedMs,
+      points_per_hour: elapsedMs > 0 ? Math.round(completed / (elapsedMs / 3_600_000) * 10) / 10 : 0,
+      data_target_percent: completed ? Math.round((completed - noData) / completed * 1000) / 10 : 0,
+      failure_percent: completed + failed ? Math.round(failed / (completed + failed) * 1000) / 10 : 0,
+    },
+    agents: reportAgents,
+  };
+}

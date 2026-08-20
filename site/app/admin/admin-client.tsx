@@ -90,6 +90,49 @@ type SoakReport = {
   }>;
 };
 
+type JobEfficiencyReport = {
+  generated_at: number;
+  job: {
+    id: number;
+    status: string;
+    total_points: number;
+    cycle: number;
+    loop: boolean;
+    created_at: number;
+    updated_at: number;
+    started_at: number;
+    finished_at: number;
+  };
+  fleet: {
+    completed_targets: number;
+    failed_targets: number;
+    no_data_targets: number;
+    captured_rows: number;
+    captured_bytes: number;
+    elapsed_ms: number;
+    points_per_hour: number;
+    data_target_percent: number;
+    failure_percent: number;
+  };
+  agents: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    completed_targets: number;
+    failed_targets: number;
+    no_data_targets: number;
+    captured_rows: number;
+    captured_bytes: number;
+    average_target_ms: number;
+    first_event_at: number;
+    last_event_at: number;
+    elapsed_ms: number;
+    points_per_hour: number;
+    data_target_percent: number;
+    failure_percent: number;
+  }>;
+};
+
 type Dashboard = {
   now: number;
   fleet: {
@@ -182,9 +225,11 @@ export default function AdminClient({
   const [editingAgentRegions, setEditingAgentRegions] = useState("");
   const [credential, setCredential] = useState<{ id: string; token: string } | null>(null);
   const [soak, setSoak] = useState<SoakReport | null>(null);
+  const [jobReport, setJobReport] = useState<JobEfficiencyReport | null>(null);
   const [dashboardError, setDashboardError] = useState("");
   const [dashboardLoadedAt, setDashboardLoadedAt] = useState(0);
   const [soakError, setSoakError] = useState("");
+  const [jobReportError, setJobReportError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -208,6 +253,17 @@ export default function AdminClient({
     } catch (error) {
       setSoakError(`24 小時報表暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
       throw error;
+    }
+  }, []);
+
+  const refreshJobReport = useCallback(async (jobId: number) => {
+    try {
+      const response = await fetch(`/api/admin/scans/report?jobId=${jobId}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setJobReport(await response.json());
+      setJobReportError("");
+    } catch (error) {
+      setJobReportError(`本輪效率報告暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
     }
   }, []);
 
@@ -236,6 +292,21 @@ export default function AdminClient({
       window.clearInterval(timer);
     };
   }, [refreshMetrics]);
+
+  useEffect(() => {
+    const jobId = dashboard?.job?.id;
+    if (!jobId) {
+      return;
+    }
+    const initial = window.setTimeout(() => {
+      refreshJobReport(jobId);
+    }, 0);
+    const timer = window.setInterval(() => refreshJobReport(jobId), 15_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [dashboard?.job?.id, refreshJobReport]);
 
   const estimate = useMemo(() => {
     const squarePoints = (diameterKm: number) =>
@@ -416,6 +487,16 @@ export default function AdminClient({
     URL.revokeObjectURL(link.href);
   };
 
+  const downloadJobReport = () => {
+    if (!jobReport) return;
+    const blob = new Blob([JSON.stringify(jobReport, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `pikmin-job-${jobReport.job.id}-efficiency.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -498,6 +579,40 @@ export default function AdminClient({
             </div>
           </div>
           <div className={styles.progressTrack}><i style={{ width: `${progress}%` }} /></div>
+        </section>
+      )}
+
+      {jobReport && (
+        <section className={styles.metricsPanel}>
+          <div className={styles.panelTitle}>
+            <div><span>JOB EFFICIENCY</span><h2>本輪 Agent 實際效率報告</h2></div>
+            <div className={styles.metricsActions}>
+              <button type="button" onClick={() => refreshJobReport(jobReport.job.id)} disabled={busy}>重新整理</button>
+              <button type="button" onClick={downloadJobReport}>下載 JSON</button>
+            </div>
+          </div>
+          <p className={styles.reportCaption}>
+            工作 #{jobReport.job.id}・{statusLabel(jobReport.job.status)}・
+            {jobReport.job.loop ? `累計至第 ${jobReport.job.cycle + 1} 輪` : "單輪結果"}
+            。資料以不可覆寫的 Agent 事件紀錄統計；工作結束後仍可查看。
+          </p>
+          {jobReportError && <p className={styles.inlineWarning}>{jobReportError}；目前保留最近一次成功結果。</p>}
+          <div className={styles.metricSummary}>
+            <div><span>完成掃描點</span><strong>{jobReport.fleet.completed_targets}</strong></div>
+            <div><span>有效資料率</span><strong>{jobReport.fleet.data_target_percent}%</strong></div>
+            <div><span>失敗率</span><strong>{jobReport.fleet.failure_percent}%</strong></div>
+            <div><span>總擷取行數</span><strong>{jobReport.fleet.captured_rows}</strong></div>
+            <div><span>叢集點／小時</span><strong>{jobReport.fleet.points_per_hour}</strong></div>
+          </div>
+          <div className={styles.metricAgents}>
+            {jobReport.agents.map((agent) => (
+              <article key={agent.id} data-health={agent.completed_targets ? "healthy" : "collecting"}>
+                <div><strong>{agent.name}</strong><span>{agent.enabled ? "agent" : "disabled"}</span></div>
+                <p>完成 {agent.completed_targets}・有效資料率 {agent.data_target_percent}%・失敗 {agent.failed_targets}</p>
+                <small>無資料 {agent.no_data_targets}・擷取 {agent.captured_rows} 行・{agent.points_per_hour} 點／小時・平均 {Math.round(agent.average_target_ms / 1000)} 秒／點</small>
+              </article>
+            ))}
+          </div>
         </section>
       )}
 

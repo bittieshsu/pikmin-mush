@@ -214,6 +214,9 @@ test("adds fleet metrics, viewport pagination, version gates, and safe token rot
   assert.match(agentAction, /previous_token_hash/);
   assert.match(agentAction, /24 \* 60 \* 60_000/);
   assert.match(adminClient, /24 小時穩定度與無資料偵測/);
+  assert.match(adminClient, /本輪 Agent 實際效率報告/);
+  assert.match(adminClient, /api\/admin\/scans\/report/);
+  assert.match(metrics, /buildJobEfficiencyReport/);
   assert.match(adminClient, /換發 Token/);
   assert.match(phoneAgent, /X-Game-Version/);
   assert.match(phoneAgent, /X-Module-Version/);
