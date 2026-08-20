@@ -246,6 +246,25 @@ test("bounds mushroom retention without making concurrent uploads purge repeated
   assert.match(migration, /CREATE TABLE `maintenance_state`/);
 });
 
+test("shows the Agent that discovered a mushroom without guessing legacy sources", async () => {
+  const [schema, cloud, upload, publicApi, map, migration] = await Promise.all([
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/cloud.ts", root), "utf8"),
+    readFile(new URL("app/api/agent/upload/route.ts", root), "utf8"),
+    readFile(new URL("app/api/mushrooms/route.ts", root), "utf8"),
+    readFile(new URL("public/map.html", root), "utf8"),
+    readFile(new URL("drizzle/0010_glossy_corsair.sql", root), "utf8"),
+  ]);
+
+  assert.match(schema, /discoveredByAgentId/);
+  assert.match(cloud, /discovered_by_agent_id/);
+  assert.match(upload, /upsertMushrooms\(rows, agent\.id\)/);
+  assert.match(publicApi, /discovered_by:/);
+  assert.match(map, /function discoveredBy\(m\)/);
+  assert.match(map, /來源未記錄/);
+  assert.match(migration, /discovered_by_agent_id/);
+});
+
 test("excludes level 1 mushrooms throughout the ingest and public API paths", async () => {
   const [cloud, api, phoneAgent, hook, scanner, legacyMap] = await Promise.all([
     readFile(new URL("lib/cloud.ts", root), "utf8"),

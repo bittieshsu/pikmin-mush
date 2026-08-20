@@ -75,7 +75,7 @@ export async function GET(request: Request) {
   const select = `SELECT id, lat, lng, level, type, cluster, cooldown,
       finish_ms, first_seen, last_seen, challenger_count,
       challenger_capacity, total_power, start_ms, giant_recheck_status,
-      giant_rechecked_at
+      giant_rechecked_at, discovered_by_agent_id
     FROM mushrooms WHERE ${where.join(" AND ")}
     ORDER BY last_seen DESC, id DESC${paginated ? " LIMIT ?" : ""}`;
   const mushroomBindings = paginated ? [...bindings, limit + 1] : bindings;
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
       ? db.prepare(`SELECT COUNT(*) AS count FROM mushrooms WHERE ${countWhere.join(" AND ")}`)
         .bind(...countBindings).first<{ count: number }>()
       : Promise.resolve(null),
-    db.prepare("SELECT * FROM scan_agents WHERE enabled=1 ORDER BY last_seen DESC")
+    db.prepare("SELECT * FROM scan_agents ORDER BY enabled DESC, last_seen DESC")
       .all<ScanAgentRow>(),
     db.prepare("SELECT status_json, updated_at FROM scanner_status WHERE id = 1").first(),
   ]);
@@ -112,6 +112,9 @@ export async function GET(request: Request) {
     source: String(status.source ?? "").slice(0, 48),
   };
   const agents = agentsResult.results.map((agent) => publicAgent(agent, now));
+  const agentNames = new Map(agentsResult.results.map((agent) => [
+    String(agent.id), String(agent.display_name),
+  ]));
   const rawRows = paginated ? mushrooms.results.slice(0, limit) : mushrooms.results;
   const publicMushrooms = rawRows.map((mushroom) => {
     const firstSeen = Number(mushroom.first_seen ?? 0);
@@ -119,6 +122,7 @@ export async function GET(request: Request) {
     return {
       ...mushroom,
       discovered_at: Math.max(firstSeen, challengeStarted),
+      discovered_by: agentNames.get(String(mushroom.discovered_by_agent_id ?? "")) ?? "",
     };
   });
   const hasMore = paginated && mushrooms.results.length > limit;

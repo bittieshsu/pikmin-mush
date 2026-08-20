@@ -10,6 +10,7 @@ export const mushrooms = sqliteTable("mushrooms", {
   cooldown: integer("cooldown").notNull().default(0),
   finishMs: integer("finish_ms").notNull().default(0),
   firstSeen: integer("first_seen").notNull(),
+  discoveredByAgentId: text("discovered_by_agent_id").notNull().default(""),
   lastSeen: integer("last_seen").notNull(),
   challengerCount: integer("challenger_count").notNull().default(0),
   challengerCapacity: integer("challenger_capacity").notNull().default(0),
