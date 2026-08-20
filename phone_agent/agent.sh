@@ -100,6 +100,19 @@ run_as_shell() {
     "PATH=/system/bin:/system/xbin:/vendor/bin:/sbin; export PATH; $1"
 }
 
+# `timeout <n> run_as_shell "..."` does not work: run_as_shell is a shell
+# function, not something timeout(1) can exec (it fails with "No such file
+# or directory", exit 127, on every call). This wraps the timeout around
+# the actual su binary instead, which timeout(1) can exec. Use this any
+# place that previously combined `timeout ... run_as_shell ...`.
+run_as_shell_timeout() {
+  RUN_TIMEOUT_SECONDS="$1"
+  shift
+  [ -n "$MAGISK_SU" ] && [ -x "$MAGISK_SU" ] || return 127
+  timeout -k 2 "$RUN_TIMEOUT_SECONDS" "$MAGISK_SU" -Z u:r:shell:s0 2000 -c \
+    "PATH=/system/bin:/system/xbin:/vendor/bin:/sbin; export PATH; $1"
+}
+
 ensure_system_gps_provider() {
   [ "$SYSTEM_GPS_OVERRIDE" = "1" ] || return 0
   appops set 2000 android:mock_location allow >/dev/null 2>&1 || return 1
@@ -208,14 +221,14 @@ upload_new() {
 game_display_id() {
   DISPLAY_ID="$(cat "$DISPLAY_FILE" 2>/dev/null)"
   case "$DISPLAY_ID" in ''|*[!0-9]*) return 1 ;; esac
-  DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
-    run_as_shell "cmd display get-displays" 2>/dev/null)" || DISPLAY_LIST=""
+  DISPLAY_LIST="$(run_as_shell_timeout "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
+    "cmd display get-displays" 2>/dev/null)" || DISPLAY_LIST=""
   if ! echo "$DISPLAY_LIST" | grep -q "Display id $DISPLAY_ID:"; then
     # Android 12 does not implement `cmd display get-displays`. Fall back to
     # DisplayManagerService so a valid virtual display is not mistaken for a
     # missing one and the game is never launched on the physical screen.
-    DISPLAY_LIST="$(timeout -k 2 "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
-      run_as_shell "dumpsys display" 2>/dev/null)" || return 1
+    DISPLAY_LIST="$(run_as_shell_timeout "$DISPLAY_QUERY_TIMEOUT_SECONDS" \
+      "dumpsys display" 2>/dev/null)" || return 1
     echo "$DISPLAY_LIST" | grep -q "mDisplayId=$DISPLAY_ID" || return 1
   fi
   echo "$DISPLAY_ID"
