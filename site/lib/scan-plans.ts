@@ -460,9 +460,24 @@ const USA_WEST: Center[] = [
   ["沙加緬度 Sacramento",38.5816,-121.4944],["聖荷西 San Jose",37.3382,-121.8863],
   ["檀香山 Honolulu",21.3099,-157.8581],["安克拉治 Anchorage",61.2181,-149.9003],
 ];
+
+const TAIWAN: Center[] = [
+  ["台北 Taipei",25.0330,121.5654],["新北 New Taipei",25.0120,121.4657],
+  ["桃園 Taoyuan",24.9936,121.3010],["台中 Taichung",24.1477,120.6736],
+  ["台南 Tainan",22.9997,120.2270],["高雄 Kaohsiung",22.6273,120.3014],
+  ["新竹 Hsinchu",24.8138,120.9675],["花蓮 Hualien",23.9871,121.6015],
+];
+
+const CANADA: Center[] = [
+  ["多倫多 Toronto",43.6532,-79.3832],["蒙特婁 Montreal",45.5019,-73.5674],
+  ["溫哥華 Vancouver",49.2827,-123.1207],["卡加利 Calgary",51.0447,-114.0719],
+  ["渥太華 Ottawa",45.4215,-75.6972],["艾德蒙頓 Edmonton",53.5461,-113.4938],
+  ["魁北克市 Quebec City",46.8139,-71.2080],["溫尼伯 Winnipeg",49.8951,-97.1384],
+];
 // 國家目錄是擴充的唯一入口。新增歐美國家時只需要加入一個定義，
 // 排程器、後台選項與 Agent 區域偏好都會自動沿用。
 export const COUNTRY_PACK_CATALOG = [
+  { id: "tw", name: "台灣", region: "亞洲", cities: TAIWAN },
   { id: "jp", name: "日本", region: "亞洲", cities: JAPAN },
   { id: "in", name: "印度", region: "亞洲", cities: INDIA },
   { id: "kr", name: "韓國", region: "亞洲", cities: SOUTH_KOREA },
@@ -530,6 +545,7 @@ export const COUNTRY_PACK_CATALOG = [
   { id: "us-east", name: "美國東部", region: "北美洲", cities: USA_EAST },
   { id: "us-central", name: "美國中部", region: "北美洲", cities: USA_CENTRAL },
   { id: "us-west", name: "美國西部", region: "北美洲", cities: USA_WEST },
+  { id: "ca", name: "加拿大", region: "北美洲", cities: CANADA },
 ] as const;
 
 export const COUNTRY_PACKS: Record<string, Center[]> = Object.fromEntries(
@@ -565,11 +581,18 @@ export function normalizeScanConfig(input: unknown): ScanConfig {
   const config: ScanConfig = {
     mode,
     countryPacks: Array.isArray(body.countryPacks) ? body.countryPacks.map(String) : [],
-    radiusKm: bounded(body.radiusKm ?? 2, 0.5, 10, "城市半徑"),
-    gridStepM: bounded(body.gridStepM ?? 600, 100, 2000, "網格間距"),
+    // 2026-08-20：從市中心單點擴大到含郊區，預設半徑 2km→8km（上限 10km）。
+    radiusKm: bounded(body.radiusKm ?? 8, 0.5, 10, "城市半徑"),
+    // 2026-08-20 現場實測（台北，8 秒/點，四種等效時速各兩個方位角）：跳點
+    // 距離拉到 667m/889m（等效 300-400km/h）後，每分鐘收穫的不重複蘑菇數
+    // 明顯下滑（27.7、25.4 個/分鐘 vs 16.2、18.0），667m 以上開始出現漏收。
+    // 350m 落在有實測支持的高效區間內，仍比 222m（100km/h 等效）省點數。
+    gridStepM: bounded(body.gridStepM ?? 350, 100, 2000, "網格間距"),
     dwellS: bounded(body.dwellS ?? 8, 3, 120, "每點等待"),
     hopDelayS: bounded(body.hopDelayS ?? 2, 0, 60, "跳點延遲"),
-    cooldownS: bounded(body.cooldownS ?? 45, 0, 300, "跨城市冷卻"),
+    // 2026-08-20：45→10，跨城市冷卻公式也拿掉距離加成（見下方 buildScanPlan
+    // 的說明），跨城市現在真的固定等這麼多秒，不會因為距離遠而被拉長。
+    cooldownS: bounded(body.cooldownS ?? 10, 0, 300, "跨城市冷卻"),
     loop: body.loop !== false,
   };
   if (mode === "custom") {
@@ -667,9 +690,13 @@ export function buildScanPlan(
   let previous = currentLocation ?? null;
   regions.forEach((region, regionIndex) => {
     const regionCenter = center(region);
-    const travelCooldown = previous
-      ? Math.max(config.cooldownS, Math.min(120, distanceKm(previous, regionCenter) / 10))
-      : 0;
+    // 2026-08-20 之前這裡是 distance/10（上限 120 秒）疊加 cooldownS 下限，
+    // 讓遠距離跨城市/跨洲永遠至少要等到 120 秒，不管 cooldownS 設多低。
+    // 現場實測（同一晚，跨 9 個城市含洲際瞬移）native hook 對任意距離的瞬移
+    // 都是同一種處理方式，沒有觀察到距離造成的額外延遲或失敗率，這個按距離
+    // 疊加的安全邊際沒有實測依據，改成直接用 cooldownS，跨城市時間可以真的
+    // 固定在使用者設定的秒數（例如 10 秒），不會被遠距離城市拉長。
+    const travelCooldown = previous ? config.cooldownS : 0;
     grid(region, config.gridStepM).forEach((point, pointIndex) => {
       targets.push({
         country: region.country,
@@ -683,13 +710,18 @@ export function buildScanPlan(
     });
     previous = regionCenter;
   });
-  if (targets.length > 10_000) {
-    throw new Error(`掃描範圍產生 ${targets.length} 點，超過 10,000 點上限`);
+  // 2026-08-20：10,000→30,000。半徑從市中心（2km）擴大到含郊區（8km）後，
+  // 單一城市點數可能暴增 40 倍，10,000 太容易被單一國家城市包擋住。拉到
+  // 3 倍而不是一次衝到「全世界 65 包＋滿 8km」需要的近百萬點，是因為
+  // materializeTargets 每 50 個 batch 才 await 一次 D1 round trip，點數
+  // 一次衝太高有 Cloudflare Worker 執行時間逾時的風險，還沒有實測驗證過
+  // 這個上限之上會不會逾時；真的要衝到百萬點等級需要先把 materialize 改成
+  // 非同步/分批背景處理，不在這次最小成本改動範圍內。
+  if (targets.length > 30_000) {
+    throw new Error(`掃描範圍產生 ${targets.length} 點，超過 30,000 點上限`);
   }
   if (config.loop && targets.length && regions.length > 1) {
-    const wrap = Math.max(config.cooldownS,
-      Math.min(120, distanceKm(center(regions.at(-1)!), center(regions[0])) / 10));
-    targets[0].cooldownS = Math.max(targets[0].cooldownS, Math.round(wrap));
+    targets[0].cooldownS = Math.max(targets[0].cooldownS, config.cooldownS);
   }
   return { regions, targets };
 }

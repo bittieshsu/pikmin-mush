@@ -27,7 +27,7 @@ POLL_SECONDS="${POLL_SECONDS:-2}"
 MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
-MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-40}"
+MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-60}"
 QUERY_ONLY_RESTART_STREAK="${QUERY_ONLY_RESTART_STREAK:-12}"
 DISPLAY_QUERY_TIMEOUT_SECONDS="${DISPLAY_QUERY_TIMEOUT_SECONDS:-5}"
 DISPLAY_READY_TIMEOUT_SECONDS="${DISPLAY_READY_TIMEOUT_SECONDS:-20}"
@@ -35,6 +35,27 @@ STARTUP_TAP_X="${STARTUP_TAP_X:-0}"
 STARTUP_WARNING_Y="${STARTUP_WARNING_Y:-0}"
 STARTUP_CONTINUE_Y="${STARTUP_CONTINUE_Y:-0}"
 STARTUP_LOGIN_CONTINUE_Y="${STARTUP_LOGIN_CONTINUE_Y:-0}"
+# 一般重啟（非跨日第一次）預設會停在首頁儀表板，不是即時地圖畫面——
+# RegisterMapObject 在儀表板/任何彈窗下都不會觸發，即使 GPS 覆寫與地圖查詢
+# 仍正常運作。MAP_VIEW_TAP 是儀表板上的羅盤／探索圖示，點下去才會進地圖，
+# 已於實機驗證多次可靠。
+MAP_VIEW_TAP_X="${MAP_VIEW_TAP_X:-0}"
+MAP_VIEW_TAP_Y="${MAP_VIEW_TAP_Y:-0}"
+# Niantic 的移動過快偵測（「由於移動速度太快，一部分的遊玩將被限制」／
+# 「我不是司機」）在長時間高速瞬移後可能出現，觸控關閉，不吃 ENTER/DPAD_CENTER。
+SPEED_WARNING_TAP_X="${SPEED_WARNING_TAP_X:-0}"
+SPEED_WARNING_TAP_Y="${SPEED_WARNING_TAP_Y:-0}"
+# 以下三組座標目前「不會」被自動點擊（2026-08-20 實測發現它們的按鈕 Y 座標
+# 常跟其他畫面的真實功能鍵重疊，誤觸風險高於效益，只在跨日第一次啟動這個
+# 罕見情境才用得到）。保留設定供未來手動調整或重新設計更安全的偵測方式之後
+# 再啟用；目前跨日第一次啟動就交給既有的 QUERY_ONLY_RESTART_STREAK 冷重啟
+# 迴圈多試幾次頂過去。
+RECAP_CONFIRM_TAP_X="${RECAP_CONFIRM_TAP_X:-0}"
+RECAP_CONFIRM_TAP_Y="${RECAP_CONFIRM_TAP_Y:-0}"
+MOOD_TAP_X="${MOOD_TAP_X:-0}"
+MOOD_TAP_Y="${MOOD_TAP_Y:-0}"
+SHARE_CLOSE_TAP_X="${SHARE_CLOSE_TAP_X:-0}"
+SHARE_CLOSE_TAP_Y="${SHARE_CLOSE_TAP_Y:-0}"
 SYSTEM_GPS_OVERRIDE="${SYSTEM_GPS_OVERRIDE:-0}"
 # Android 9 does not expose the newer `cmd location providers` shell command.
 # When configured, a local explicit-only bridge App owns the mock-location
@@ -45,7 +66,7 @@ if [ ! -x "$MAGISK_SU" ]; then
   MAGISK_SU="$(command -v su 2>/dev/null)"
 fi
 AGENT_ID="${AGENT_ID:-primary}"
-AGENT_VERSION="${AGENT_VERSION:-2.1.0}"
+AGENT_VERSION="${AGENT_VERSION:-2.2.0}"
 GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
   sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')}"
 MODULE_VERSION="${MODULE_VERSION:-150.0}"
@@ -266,6 +287,30 @@ game_tap() {
   fi
 }
 
+# 2026-08-20 現場測試教訓，記在這裡因為它決定了下面 wait_for_map_refresh
+# fallback 分支的寫法，不是只是背景知識：
+# 1) 固定座標點擊「不是」無害的 no-op——這款遊戲不同畫面的底部/中段功能列
+#    常常共用相近的 Y 座標（地圖畫面右側捷徑欄、事件頁籤列、首頁儀表板的
+#    「完成N場探險」進度條都落在同一段 Y 範圍），畫面跟預期不同時點擊會
+#    誤觸別的畫面上真實存在的功能鍵，而不是點在空白處——包括既有、已在
+#    正式機隊沿用的 STARTUP_WARNING_Y/STARTUP_CONTINUE_Y 座標，實測也曾誤
+#    觸「完成N場探險」進度條、被帶去活動頁面。
+# 2) KEYCODE_BACK 不是通用安全牌：從地圖畫面按 BACK 會回到首頁儀表板，但
+#    從儀表板（沒有更上層畫面可退）按 BACK 會把遊戲整個切到背景、跳出到
+#    桌面或其他 App——比任何誤觸都更糟（掃描完全停擺，需要人工切回遊戲），
+#    因此完全不用 KEYCODE_BACK。
+# 3) 因為每次點擊都有誤觸風險，「重複掃描、期待某輪會對」的設計是在放大
+#    風險而不是收斂——所以下面沿用原本的寫法：每個座標只在固定的一個時間
+#    點各點一次，不是每 20 秒重複整輪。這跟既有 STARTUP_* 三個座標的風險
+#    profile 一致，沒有讓情況變得更糟，只是多涵蓋了新發現的兩種畫面。
+#
+# 每日跨零點第一次啟動才會出現的步數回顧（計數動畫可長達 60-90 秒）、心情
+# 打卡、分享卡，目前**刻意不**自動點擊收斂——這三個畫面的按鈕座標跟地圖/
+# 儀表板真實功能鍵重疊的風險最高，且只影響「跨日後第一個掃描點」，讓
+# QUERY_ONLY_RESTART_STREAK 用既有的冷重啟迴圈多重試幾次去等它自然過去，
+# 比冒著誤觸或跳出遊戲的風險更安全。座標留在 config.example 供手動調整或
+# 未來設計出更安全的偵測方式後再啟用。
+
 game_is_resumed() {
   run_as_shell "dumpsys activity activities" 2>/dev/null |
     grep -E 'topResumedActivity|ResumedActivity:' |
@@ -398,20 +443,46 @@ wait_for_map_refresh() {
     sleep 1
     REFRESH_LEFT=$((REFRESH_LEFT - 1))
     REFRESH_ELAPSED=$((REFRESH_TOTAL - REFRESH_LEFT))
-    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 10 ]; then
+    # Ordering matters here, and is not arbitrary — this loop exits the
+    # instant a marker appears, so whichever action fires FIRST and actually
+    # works is the only one that ends up mattering; anything scheduled later
+    # never gets a chance to run. 2026-08-20 testing found:
+    #  - A plain app-level restart (restart_game_for_scan, i.e. the common
+    #    case here — not a full device reboot) reliably lands on the home
+    #    dashboard directly, not on any dialog. MAP_VIEW_TAP alone from a
+    #    freshly-landed dashboard reliably opens the live map — verified
+    #    repeatedly on-device.
+    #  - STARTUP_WARNING_Y/STARTUP_CONTINUE_Y were designed for the two
+    #    touch-only screens that follow an actual device reboot (see
+    #    service.sh); firing them against a plain dashboard with no dialog
+    #    present can instead land on the dashboard's own quest-progress bar
+    #    and wander into an unrelated challenges/events menu — a real,
+    #    previously-undiagnosed risk that predates this file's changes
+    #    tonight, not something introduced by MAP_VIEW_TAP.
+    #  - KEYCODE_BACK is not used anywhere here: from the dashboard root
+    #    (no parent screen left to pop) it can send the whole app to the
+    #    background instead of closing anything, which is worse than any
+    #    mis-tap and would stall scanning until a human switches back.
+    # So: try the cheap, high-confidence recovery (MAP_VIEW_TAP) first. Only
+    # once that has had a fair chance and still no marker showed up do we
+    # fall through to the reboot-specific taps, on the chance this really is
+    # a post-reboot dialog rather than a plain dashboard. Each coordinate
+    # fires exactly once per fallback attempt (not on a repeating timer) —
+    # repeating the same blind guess would only compound whichever mistake
+    # it made the first time.
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 8 ]; then
       game_keyevent KEYCODE_ENTER
       game_keyevent KEYCODE_DPAD_CENTER
+      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
     fi
-    # After a reboot, Pikmin may stay on the two touch-only "continue" screens
-    # even though Android reports the Unity activity as resumed. Only tap while
-    # the fallback still has no map-query/object marker, so normal scans are not
-    # disturbed once the map is actually ready.
-    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 15 ]; then
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 20 ]; then
+      game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
       game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
       game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
     fi
-    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 22 ]; then
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 30 ]; then
       game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
+      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
     fi
     if [ $((REFRESH_LEFT % 10)) -eq 0 ]; then
       CONTROL="$(scan_control)"

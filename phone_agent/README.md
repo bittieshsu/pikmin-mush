@@ -14,11 +14,50 @@
 6. 網路失敗時不推進 offset；恢復後自動續傳及重送完成 ACK。
 
 啟用 `MAP_REFRESH_EXPERIMENT=1` 後，每個掃描點不再盲等固定秒數，而是等待
-native hook 寫出的 map-query／map-object marker；目前實機穩定設定為
-`MAP_REFRESH_TIMEOUT_SECONDS=0`，直接使用冷啟動 marker 流程。開機服務會先嘗試
-解除無密碼 Keyguard；若重啟後仍停在 Pikmin 的兩個「繼續」畫面，720x1600
-virtual display 可使用 `STARTUP_TAP_X=360`、`STARTUP_WARNING_Y=835`、
-`STARTUP_CONTINUE_Y=752` 與 `STARTUP_LOGIN_CONTINUE_Y=860` 自動解除安全提示並恢復。
+native hook 寫出的 map-query／map-object marker；2026-08-20 起預設改為
+`MAP_REFRESH_TIMEOUT_SECONDS=18`（Agent 2.2+）。舊版預設 `=0` 會讓 agent 完全
+跳過這段等待、每個沒抓到新資料的點都直接冷重啟——這不是因為即時刷新不可靠，
+是因為舊版的冷重啟復原序列（見下）等不到「跨日第一次啟動」才會出現的每日
+步數回顧卡（其計數動畫可長達 60-90 秒）、心情打卡、分享卡，這些畫面關閉後
+預設落在首頁儀表板、不是即時地圖，而 `RegisterMapObject` 只有在真的打開地圖
+畫面時才會觸發——GPS 覆寫與地圖查詢兩者從儀表板送出時仍會回報成功，不會有
+任何錯誤訊號。實測同一個遊戲 process 在即時刷新模式下可連續運作 20+ 分鐘、
+跨洲瞬移零重啟，只要能穩定停在地圖畫面。
+
+冷重啟復原序列（`MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS`，預設 60 秒）分三個
+固定時間點各觸發一次、不重複：
+
+- `elapsed=8s`：ENTER/DPAD_CENTER + `MAP_VIEW_TAP_*`（首頁儀表板的羅盤／
+  探索圖示）。2026-08-20 實測：一般的 app 內重啟（`restart_game_for_scan`，
+  非完整裝置重開機）幾乎都會直接落在首頁儀表板，不是對話框，`RegisterMapObject`
+  只有在真的打開地圖畫面才會觸發——GPS 覆寫與地圖查詢兩者從儀表板送出時仍
+  回報成功，沒有任何錯誤訊號能分辨。單獨點這個羅盤圖示重複驗證兩次都穩定
+  把畫面帶回地圖。
+- `elapsed=20s`：`SPEED_WARNING_TAP_*`（Niantic 移動過快警告「我不是司
+  機」）＋ `STARTUP_WARNING_Y`／`STARTUP_CONTINUE_Y`（裝置真正重開機後才會
+  出現的安全提示／兩個觸控繼續畫面）。
+- `elapsed=30s`：`STARTUP_LOGIN_CONTINUE_Y` ＋ 再點一次 `MAP_VIEW_TAP_*`
+  保底。
+
+**座標順序是刻意的、不能隨意調換**：這個等待迴圈一偵測到 marker 就會立刻
+結束，所以排最前面、且已驗證最可靠的動作實際上決定了大部分情況的結果，
+後面排的動作多半根本沒機會執行到。2026-08-20 現場測試發現兩個重要教訓：
+（1）固定座標點擊不是無害的 no-op——這款遊戲不同畫面的功能列常共用相近
+Y 座標，包括**既有、已在正式機隊沿用的** `STARTUP_WARNING_Y`／`STARTUP_CONTINUE_Y`
+本身，若在只有首頁儀表板、沒有真正對話框的情境下觸發，可能誤觸「完成N場
+探索」進度條而被帶去不相干的活動／挑戰選單；這是這兩個座標原本設計給
+「裝置真正重開機」情境用的，套用在單純 app 內重啟時就有這個風險，是這次
+測試才發現的既有限制，不是本次改動造成的。（2）`KEYCODE_BACK` 不是通用
+安全牌：從地圖畫面按 BACK 會回到首頁儀表板沒錯，但從儀表板（沒有更上層
+畫面可退）按 BACK 會把遊戲整個切到背景、跳出到桌面或其他 App，比任何誤觸
+都更糟（掃描完全停擺，需要人工切回遊戲）——因此整個復原序列完全不使用
+`KEYCODE_BACK`，也不重複同一輪點擊（重複只會放大已經點錯的風險，不會收
+斂）。步數回顧卡、心情打卡、分享卡的座標（`RECAP_CONFIRM_TAP_*`／
+`MOOD_TAP_*`／`SHARE_CLOSE_TAP_*`）目前**不會**被自動觸發，原因同上，只
+在 config.example 留供手動使用；跨日第一次啟動這個少見情境交給既有的
+`QUERY_ONLY_RESTART_STREAK` 冷重啟迴圈多重試幾次頂過去。座標基準是
+720x1600 virtual display，實機解析度不同時等比例換算；未設定（留 `0`）
+的座標會被跳過。
 Pikmin 150.0 的地圖查詢還需要 Android 系統位置；專用掃描手機應設定
 `SYSTEM_GPS_OVERRIDE=1`，Agent 會讓系統 GPS 與每個掃描 target 同步。
 若 map-query marker 持續成功、卻沒有 map-object marker 或有效 TSV 資料，
