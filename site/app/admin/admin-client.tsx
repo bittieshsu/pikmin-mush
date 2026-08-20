@@ -223,6 +223,9 @@ export default function AdminClient({
   const [agentRegions, setAgentRegions] = useState("");
   const [editingAgentId, setEditingAgentId] = useState("");
   const [editingAgentRegions, setEditingAgentRegions] = useState("");
+  const [editingAgentNameId, setEditingAgentNameId] = useState("");
+  const [editingAgentName, setEditingAgentName] = useState("");
+  const [deletingAgentId, setDeletingAgentId] = useState("");
   const [credential, setCredential] = useState<{ id: string; token: string } | null>(null);
   const [soak, setSoak] = useState<SoakReport | null>(null);
   const [jobReport, setJobReport] = useState<JobEfficiencyReport | null>(null);
@@ -439,8 +442,11 @@ export default function AdminClient({
       } else if (action === "revoke-old-token") {
         setNotice(`${agent.name} 的舊 Token 已立即撤銷`);
       } else if (action === "rename") {
+        setEditingAgentNameId("");
+        setEditingAgentName("");
         setNotice(`${agent.name} 已重新命名為 ${result.display_name}`);
       } else if (action === "delete") {
+        setDeletingAgentId("");
         setNotice(`${agent.name} 已永久自後台移除`);
       }
       await refresh();
@@ -699,6 +705,22 @@ export default function AdminClient({
                   <small>新設定會在目前掃描點完成後生效，並依左到右順序掃描指定地區。</small>
                 </div>
               )}
+              {editingAgentNameId === agent.id && (
+                <div className={styles.agentRegionEditor}>
+                  <label>
+                    <span>Agent 名稱</span>
+                    <input value={editingAgentName}
+                      maxLength={48}
+                      onChange={(event) => setEditingAgentName(event.target.value)} />
+                  </label>
+                  <div>
+                    <button type="button" className={styles.agentResume} disabled={busy || !editingAgentName.trim()}
+                      onClick={() => agentAction(agent, "rename", editingAgentName.trim())}>儲存名稱</button>
+                    <button type="button" disabled={busy}
+                      onClick={() => { setEditingAgentNameId(""); setEditingAgentName(""); }}>取消</button>
+                  </div>
+                </div>
+              )}
               <div className={styles.agentActions}>
                 {!dashboard.rotation.enabled && (
                   <button className={styles.agentToggle} disabled={busy}
@@ -723,10 +745,10 @@ export default function AdminClient({
                 </button>
                 <button className={styles.agentToggle} disabled={busy}
                   onClick={() => {
-                    const name = window.prompt("輸入新的 Agent 名稱", agent.name)?.trim();
-                    if (name && name !== agent.name) agentAction(agent, "rename", name);
+                    setEditingAgentNameId(editingAgentNameId === agent.id ? "" : agent.id);
+                    setEditingAgentName(agent.name);
                   }}>
-                  重新命名
+                  {editingAgentNameId === agent.id ? "關閉改名" : "重新命名"}
                 </button>
                 <button className={styles.agentToggle} disabled={busy}
                   onClick={() => window.confirm(`確定換發 ${agent.name} 的 Token？舊 Token 會保留 24 小時。`) &&
@@ -741,12 +763,17 @@ export default function AdminClient({
                   </button>
                 )}
                 {!agent.enabled && agent.id !== "primary" && (
-                  <button className={`${styles.agentToggle} ${styles.agentDanger}`} disabled={busy}
-                    onClick={() => window.confirm(
-                      `確定永久刪除 ${agent.name}？此操作會移除 Agent 憑證與專屬事件紀錄，無法復原。`,
-                    ) && agentAction(agent, "delete")}>
-                    永久刪除
-                  </button>
+                  deletingAgentId === agent.id ? (
+                    <button className={`${styles.agentToggle} ${styles.agentDanger}`} disabled={busy}
+                      onClick={() => agentAction(agent, "delete")}>
+                      確認永久刪除
+                    </button>
+                  ) : (
+                    <button className={`${styles.agentToggle} ${styles.agentDanger}`} disabled={busy}
+                      onClick={() => setDeletingAgentId(agent.id)}>
+                      永久刪除
+                    </button>
+                  )
                 )}
               </div>
             </article>
