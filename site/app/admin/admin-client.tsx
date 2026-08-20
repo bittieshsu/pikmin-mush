@@ -422,14 +422,14 @@ export default function AdminClient({
   };
 
   const agentAction = async (agent: Agent, action: "enable" | "disable" | "pause" | "resume" |
-    "rotate-token" | "revoke-old-token") => {
+    "rotate-token" | "revoke-old-token" | "rename" | "delete", displayName?: string) => {
     setBusy(true);
     setNotice("");
     try {
       const response = await fetch("/api/admin/agents/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId: agent.id, action }),
+        body: JSON.stringify({ agentId: agent.id, action, displayName }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Agent 操作失敗");
@@ -438,6 +438,10 @@ export default function AdminClient({
         setNotice(`${agent.name} 已換發 Token；舊 Token 24 小時後失效`);
       } else if (action === "revoke-old-token") {
         setNotice(`${agent.name} 的舊 Token 已立即撤銷`);
+      } else if (action === "rename") {
+        setNotice(`${agent.name} 已重新命名為 ${result.display_name}`);
+      } else if (action === "delete") {
+        setNotice(`${agent.name} 已永久自後台移除`);
       }
       await refresh();
     } catch (error) {
@@ -718,6 +722,13 @@ export default function AdminClient({
                   {agent.enabled ? "停用節點" : "啟用節點"}
                 </button>
                 <button className={styles.agentToggle} disabled={busy}
+                  onClick={() => {
+                    const name = window.prompt("輸入新的 Agent 名稱", agent.name)?.trim();
+                    if (name && name !== agent.name) agentAction(agent, "rename", name);
+                  }}>
+                  重新命名
+                </button>
+                <button className={styles.agentToggle} disabled={busy}
                   onClick={() => window.confirm(`確定換發 ${agent.name} 的 Token？舊 Token 會保留 24 小時。`) &&
                     agentAction(agent, "rotate-token")}>
                   換發 Token
@@ -727,6 +738,14 @@ export default function AdminClient({
                     onClick={() => window.confirm(`確定立即撤銷 ${agent.name} 的舊 Token？`) &&
                       agentAction(agent, "revoke-old-token")}>
                     撤銷舊 Token
+                  </button>
+                )}
+                {!agent.enabled && agent.id !== "primary" && (
+                  <button className={`${styles.agentToggle} ${styles.agentDanger}`} disabled={busy}
+                    onClick={() => window.confirm(
+                      `確定永久刪除 ${agent.name}？此操作會移除 Agent 憑證與專屬事件紀錄，無法復原。`,
+                    ) && agentAction(agent, "delete")}>
+                    永久刪除
                   </button>
                 )}
               </div>

@@ -7,7 +7,12 @@ export async function POST(request: Request) {
   if (!adminAuthorized(request)) return noStoreJson({ error: "forbidden" }, 403);
   if (!sameOrigin(request)) return noStoreJson({ error: "invalid origin" }, 403);
   await ensureSchema();
-  let body: { agentId?: unknown; action?: unknown; regionTags?: unknown };
+  let body: {
+    agentId?: unknown;
+    action?: unknown;
+    regionTags?: unknown;
+    displayName?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -17,11 +22,43 @@ export async function POST(request: Request) {
   const action = String(body.action ?? "");
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(agentId) ||
       !["enable", "disable", "pause", "resume", "update-regions",
-        "rotate-token", "revoke-old-token"].includes(action)) {
+        "rotate-token", "revoke-old-token", "rename", "delete"].includes(action)) {
     return noStoreJson({ error: "invalid action" }, 400);
   }
   const db = runtime().DB;
   const now = Date.now();
+
+  if (action === "rename") {
+    const displayName = String(body.displayName ?? "").trim();
+    if (!displayName || displayName.length > 48 || /[\u0000-\u001f\u007f]/.test(displayName)) {
+      return noStoreJson({ error: "Agent 名稱需為 1 至 48 個可顯示字元" }, 400);
+    }
+    const result = await db.prepare(
+      "UPDATE scan_agents SET display_name=?, updated_at=? WHERE id=?",
+    ).bind(displayName, now, agentId).run();
+    if (!result.meta.changes) return noStoreJson({ error: "Agent 不存在" }, 404);
+    return noStoreJson({ ok: true, display_name: displayName });
+  }
+
+  // 永久除役只允許已停用的非 primary 節點；避免誤刪正在派工的憑證。
+  // 目標紀錄保留其 completed_agent_id 以維持掃描資料的來源追溯，
+  // 但移除該裝置專屬的事件統計與所有可用 Token 雜湊。
+  if (action === "delete") {
+    if (agentId === "primary") {
+      return noStoreJson({ error: "主要 Agent 不可永久刪除" }, 409);
+    }
+    const agent = await db.prepare("SELECT enabled FROM scan_agents WHERE id=?")
+      .bind(agentId).first<{ enabled: number }>();
+    if (!agent) return noStoreJson({ error: "Agent 不存在" }, 404);
+    if (agent.enabled) {
+      return noStoreJson({ error: "請先停用節點後再永久刪除" }, 409);
+    }
+    await db.batch([
+      db.prepare("DELETE FROM scan_agent_events WHERE agent_id=?").bind(agentId),
+      db.prepare("DELETE FROM scan_agents WHERE id=? AND enabled=0").bind(agentId),
+    ]);
+    return noStoreJson({ ok: true, deleted: true });
+  }
 
   if (action === "rotate-token") {
     const agent = await db.prepare(
