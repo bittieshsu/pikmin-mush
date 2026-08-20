@@ -135,3 +135,21 @@ cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=ndk/.../android.toolchain.cmake -DANDROID_
 - **已做、已驗證**：速度效率結論、機隊重啟三層根因、`agent.sh` 復原邏輯修復（多次端對端驗證）、agent5 已連上正式機隊且實戰跑過完整的 fallback 復原流程、後台效率參數改好且過 typecheck/lint。
 - **尚未做**：這批程式碼變更（`phone_agent/*`、`site/lib/scan-plans.ts`、`site/app/admin/admin-client.tsx`、`README.md`、`CLAUDE_HANDOFF.md`）**尚未 commit**（本則之後會 commit＋push 到 GitHub `origin`）；**尚未部署**到正式 `mush.odyliao.cc`（卡在上述憑證問題）；`phone_agent` 修復版也還沒推廣到另外 3 台正式機隊（同樣需要部署管道，或對那些手機的直接存取權）。
 - **下次接手（不論是 Codex 或下一個 Claude session）從哪開始**：① 用 Codex CLI 完成上述部署流程，或提供／協助取得 Sites source credential 給 Claude 直接操作；② 部署後觀察 agent5（及未來擴大到的其他機隊）在新設定下的實際效率，尤其 30,000 點上限附近 `materializeTargets` 的實際耗時；③ 把 `phone_agent/agent.sh` 修復版推廣到另外 3 台正式機隊。
+
+---
+
+## 2026-08-20（續5）：PR #44/#45 已部署上線、找到 3 台正式機隊、推廣修復版時發現並修好一個嚴重迴歸（PR #48）
+
+- **部署確認**：Codex 那邊已經完成 PR #44 + #45 的部署（Sites version 39），`GET mush.odyliao.cc/api/mushrooms?limit=1` 回 200，正式站台在跑新程式碼。另外開了 `D1_MATERIALIZATION_CAPACITY_TASK_2026-08-20.md`（PR #47）交辦給 Codex 去實測 30,000 點上限附近 `materializeTargets()` 的實際耗時。
+- **意外找到 3 台正式機隊手機**：主機（這台電腦）跟機隊手機同一個區網（`192.168.50.0/24`），機隊本來就設計了 `WIFI_ADB_PORT` 這個功能（`service.sh` 開機時會設定固定 WiFi ADB 埠）。掃這個網段的 5555 埠，找到並用 `adb connect` 連上 3 台：
+  - `192.168.50.23` → `primary`（camellian，Android 13，`LOCAL_DISPLAY=1` 虛擬顯示）
+  - `192.168.50.43` → `agent-2-asus-cc9c0d70`（ASUS Zenfone，Android 9，`LOCAL_DISPLAY=0` 實體螢幕，已裝 `cc.odyliao.pikmingpsbridge`）
+  - `192.168.50.52` → `agent-4-pixel-3-cd8643b9`（Pixel 3，Android 12，`LOCAL_DISPLAY=1` 虛擬顯示）
+  - （另外掃到 `192.168.50.90` 序號比對後確認是 f40b1e06/agent5 本機同時掛 WiFi，不是新裝置。）
+- **把修好的 `agent.sh`（2.2.0）推到這 3 台**，過程中在 `192.168.50.23`（camellian）重啟後發現卡住：`[display] virtual display unavailable`，但手動查 `cmd display get-displays`／`game.display` 檔都顯示虛擬顯示（display id 2）正常。追下去發現是**合併進來的 Android 9 修復 PR 本身就有的 bug**：`game_display_id()` 裡的 `timeout -k 2 "$N" run_as_shell "..."`——`run_as_shell` 是 shell function，不是執行檔，`timeout` 沒辦法 exec 它（`timeout: exec run_as_shell: No such file or directory`，exit 127）。這個路徑**只有 `LOCAL_DISPLAY=1` 的裝置會踩到**（`game_display_id()` 只在虛擬顯示模式下被呼叫），所以在 `LOCAL_DISPLAY=0` 的 agent5／agent2 上完全沒發現。
+  - 修法：新增 `run_as_shell_timeout()`，把 `timeout` 包在真正的 `$MAGISK_SU` 執行檔外面（`timeout` 可以正確 exec 這個），而不是包在 shell function 外面。手動驗證過修復前後的確切指令（修復前 exit 127、修復後 exit 0 且輸出正確）才動手改，改完在 camellian 跟 agent4 上重新部署驗證都恢復正常（`mode=direct`，無 `[display]` 錯誤，任務正常完成）。
+  - 已開 **PR #48** 送回 repo。
+- **agent2（ASUS 實體螢幕）的 `MAP_VIEW_TAP` 座標**：不能沿用範本或 agent5 的數值（解析度不同：1080x1920 vs agent5 的 1080x2400），現場截圖＋PIL 精確量測後校準為 `(500, 1802)`；量出來的安全提示按鈕位置 `(500, 1093)` 跟裝置既有設定的 `(540, 1065)` 很接近，互相印證既有校準可信。
+- **現況**：4 台（primary/camellian、agent2、agent4、agent5）**全部在跑 2.2.0**，含這次修的 display-timeout bug。PR #48 已推送，CI 跑完待合併。
+- 未完成：PR #48 尚未合併；`D1_MATERIALIZATION_CAPACITY_TASK`（PR #47）的實測還沒人做；agent2 的 `SPEED_WARNING_TAP` 座標是用既有 `STARTUP_WARNING_Y` 的值估的，沒有實際畫面驗證過。
+- 下次從哪開始：① 合併 PR #48；② 觀察 4 台機隊在新版下運作一段時間是否穩定（尤其確認 `query-only empty streak` 是否顯著下降）；③ Codex 那邊處理 D1 materialization 實測任務。
