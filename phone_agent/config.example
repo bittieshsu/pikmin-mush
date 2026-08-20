@@ -15,15 +15,61 @@ LOCAL_DISPLAY='0'
 # In local-display mode the agent fails closed instead of opening Pikmin on the
 # phone's physical screen.
 DISPLAY_READY_TIMEOUT_SECONDS='20'
-# Event-driven map refresh. A timeout of 0 immediately uses the verified
-# cold-restart marker path, which is the current production default.
+# Event-driven map refresh. 2026-08-20: on-device testing found the native
+# hook applies a fresh teleport.txt token and keeps RegisterMapObject firing
+# reliably for 20+ minutes across large (cross-continent) jumps with zero
+# restarts — so the direct/event-driven path is now the production default.
+# A timeout of 0 skipped the wait entirely and always fell through to a cold
+# restart on every point with no new rows; that was the old default and is
+# no longer recommended (kept as a documented option, not because it is
+# "verified" — the always-restart behavior was actually the workaround for
+# the fallback-timing bug this file now fixes, see AGENT_VERSION history).
 MAP_REFRESH_EXPERIMENT='1'
-MAP_REFRESH_TIMEOUT_SECONDS='0'
+MAP_REFRESH_TIMEOUT_SECONDS='18'
 MAP_REFRESH_SETTLE_SECONDS='3'
-MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS='40'
-# Default 720x1600 virtual-display coordinates for the two touch-only login
-# buttons that may appear after a reboot. Leave at 0 on other display sizes.
+# Cold-restart recovery budget. Raised slightly from 40s to leave room for
+# the new MAP_VIEW_TAP below (fired once, later than the dismiss taps, once
+# a fresh restart has had time to settle onto the home dashboard).
+MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS='60'
+# Default 720x1600 virtual-display coordinates for the touch-only screens
+# that can appear after a reboot. Leave at 0 on other display sizes; taps at
+# (0, N) are skipped by agent.sh so unset ones are simply no-ops.
+#
+# IMPORTANT (2026-08-20): none of these taps are guaranteed harmless. This
+# game reuses similar Y coordinates for real buttons across different
+# screens (the home dashboard's quest-progress bar, the live map's shortcut
+# column, event pages), so firing a tap meant for one dialog while a
+# different screen is actually showing can open something unrelated instead
+# of landing on empty space. agent.sh fires each coordinate below exactly
+# once per fallback attempt (not on a repeating timer) to keep that risk
+# bounded to what was already accepted for STARTUP_WARNING_Y/CONTINUE_Y in
+# production. Recalibrate for your device resolution before trusting these.
 STARTUP_TAP_X='360'
 STARTUP_WARNING_Y='835'
 STARTUP_CONTINUE_Y='752'
 STARTUP_LOGIN_CONTINUE_Y='860'
+# "我不是司機" — Niantic's movement-too-fast dialog. Can appear after
+# sustained high-speed teleporting; ignores ENTER/DPAD_CENTER and BACK.
+SPEED_WARNING_TAP_X='360'
+SPEED_WARNING_TAP_Y='849'
+# NOT currently fired by agent.sh — only relevant on the first launch after
+# local midnight (daily step recap / mood check-in / share card), and their
+# Y coordinates collide with real buttons on the dashboard/map often enough
+# that the risk outweighed the benefit for a rare, once-a-day case. Left here
+# for manual use or a future safer detection approach. See agent.sh comments.
+# "確定" on the daily step-recap card, once its counting animation finishes.
+RECAP_CONFIRM_TAP_X='360'
+RECAP_CONFIRM_TAP_Y='1397'
+# The mood check-in icon (center/neutral one).
+MOOD_TAP_X='360'
+MOOD_TAP_Y='1096'
+# "關閉" on the share-card prompt. Never point this at the share/save
+# buttons — the agent must not post or save anything on the account's behalf.
+SHARE_CLOSE_TAP_X='360'
+SHARE_CLOSE_TAP_Y='1311'
+# The bottom-center compass/explore icon that opens the live map from the
+# home dashboard. RegisterMapObject only fires while this screen is open —
+# GPS override and the map-query round trip both succeed from the dashboard
+# too, so nothing else in the pipeline signals that this tap is missing.
+MAP_VIEW_TAP_X='337'
+MAP_VIEW_TAP_Y='1438'

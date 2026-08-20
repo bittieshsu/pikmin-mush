@@ -165,11 +165,11 @@ export default function AdminClient({
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [mode, setMode] = useState<"auto" | "custom">("auto");
   const [packs, setPacks] = useState<string[]>(["日本"]);
-  const [radiusKm, setRadiusKm] = useState(2);
-  const [gridStepM, setGridStepM] = useState(600);
+  const [radiusKm, setRadiusKm] = useState(8);
+  const [gridStepM, setGridStepM] = useState(350);
   const [dwellS, setDwellS] = useState(8);
   const [hopDelayS, setHopDelayS] = useState(2);
-  const [cooldownS, setCooldownS] = useState(45);
+  const [cooldownS, setCooldownS] = useState(10);
   const [loop, setLoop] = useState(true);
   const [custom, setCustom] = useState({
     latMin: 25.020, latMax: 25.060, lngMin: 121.500, lngMax: 121.560,
@@ -669,6 +669,13 @@ export default function AdminClient({
                     </span>
                   </summary>
                   <div className={styles.packGroups}>
+                    <div className={styles.packGroup}>
+                      <button type="button"
+                        onClick={() => setPacks(COUNTRY_PACK_LABELS.map((pack) => pack.name))}>
+                        全選全世界（{COUNTRY_PACK_LABELS.length} 個城市包）
+                      </button>{" "}
+                      <button type="button" onClick={() => setPacks([])}>清空</button>
+                    </div>
                     {COUNTRY_PACK_GROUPS.map((group) => (
                       <section className={styles.packGroup} key={group.region}>
                         <h3>{group.region}</h3>

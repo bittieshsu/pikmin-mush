@@ -69,3 +69,69 @@ cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=ndk/.../android.toolchain.cmake -DANDROID_
 - 環境狀態：主機 radar.py(8321)+部署 HTTP(8200) 在跑;小號已裝 Zygisk 模組(重開機自動載入)、frida/mitmproxy 已清。晚上部署新 .so 記得 8200 server 要在、手機同網段(主機 192.168.50.12)。
 - 晚上第一步：照 DESIGN_autoscan §6 先解「執行期是哪個 ILocationController + Nullable 佈局 + 直接寫欄位是否生效」三個開放問題(作法A：hook get_LatestDeviceLocation 抓 this、寫 override 欄位 0xB8 或 0x30)。
 待辦：環境收尾（小號 Florida server、mitmproxy/proxy、主機 HTTP server 8200、frida-server）。
+
+---
+
+## 2026-08-20：掃描效率調查、機隊重啟根因、agent.sh 修復、新裝置（agent5）加入正式機隊、後台效率參數調整
+
+> 這則之前（07-14 → 08-20）的機隊化開發（`phone_agent/`、`site/` 後台、多機隊 lease 系統等）都在 git commit history 裡，沒有逐次寫進本檔；細節見 `git log main` 與 `CLAUDE_HANDOFF.md`。這則記錄的是這一次 session（Claude Code，非 Codex）從頭到尾做的事。
+
+### 背景：使用者觀察到的問題
+機隊（3 台正式 agent）掃描時「每掃一次就要重啟遊戲才能觸發蘑菇資訊更新」，懷疑是效率瓶頸，要求先查根因、再驗證是否能不靠重啟穩定掃描、最後把這台測試手機（f40b1e06，同一支後來變成 agent5）也接上正式機隊。
+
+### 一、掃描速度 vs 效率實測
+用手機上編好的 `zygisk_pikmin_hunter`（150.0-r1，`build_zygisk/` 產物），透過 `teleport.txt`（`lat,lng,token` 格式，token 需遞增才觸發套用）做瞬移＋即時擷取測試。多輪對照實驗（同城市、多方位角、8 秒刷新間隔）：
+
+| 等效時速 | 跳點距離 | 個/分鐘（實測） |
+|---|---|---|
+| 100 km/h | 222m | 27.7 |
+| 200 km/h | 444m | 25.4 |
+| 300 km/h | 667m | 16.2 |
+| 400 km/h | 889m | 18.0（雜訊大） |
+
+**結論：跳點距離越大，單位時間收穫越少，667m 以上開始明顯漏收。** 350m 是實測支持的高效區間，也是 `gridStepM` 新預設值的依據。
+
+### 二、機隊重啟頻繁的根因（三層，逐一排查出來的）
+1. **`MAP_REFRESH_TIMEOUT_SECONDS=0`（舊預設）**：讓 `wait_for_map_refresh()` 的等待迴圈直接跳過、每個沒抓到新資料的點都無條件冷重啟，不管即時刷新有沒有機會成功。改成 `18`。
+2. **螢幕休眠**：Android 螢幕進入 doze 後 Unity 的 `Update()` 每幀迴圈被系統暫停，`teleport.txt` 檔案讀寫本身不需要螢幕（背景執行緒），但套用（`SetOverride`）跟刷新都掛在 `Update()` 上，螢幕一暗整條鏈路靜默停擺，沒有任何錯誤訊號。
+3. **畫面狀態（最隱蔽、影響最大）**：`RegisterMapObject`（真正的蘑菇擷取 hook）**只有在遊戲真的停在「即時地圖／探索」畫面時才會觸發**——GPS 覆寫（`SetOverride applied`）與地圖查詢往返（`map query response received`）從安全提示彈窗、每日步數回顧卡、心情打卡、分享卡、首頁儀表板送出時，全部照樣回報成功，沒有任何訊號能分辨「真的在地圖畫面」跟「卡在其他畫面」。一般 app 內重啟（`restart_game_for_scan`，非完整裝置重開機）幾乎都會直接落在首頁儀表板，不是地圖。
+
+### 三、`phone_agent/agent.sh` 修復（已在這個 worktree 改好，見 git diff，**尚未部署到正式站台**）
+- `MAP_REFRESH_TIMEOUT_SECONDS` 0→18、`MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS` 40→60。
+- `wait_for_map_refresh()` fallback 分支新增畫面復原邏輯，三個固定時間點各觸發一次（**不重複、不用 `KEYCODE_BACK`**）：
+  - `elapsed=8s`：ENTER/DPAD_CENTER + `MAP_VIEW_TAP_*`（首頁儀表板的探索／羅盤圖示——**排最前面是刻意的**，因為外層迴圈一偵測到成功就立刻結束，排越前面的動作實際決定權越大，這個動作在一般 app 內重啟後最常見的「卡在儀表板」情境下最可靠）。
+  - `elapsed=20s`：`SPEED_WARNING_TAP_*`（新發現的 Niantic「移動過快／我不是司機」對話框，長時間高速瞬移後可能出現）＋既有的 `STARTUP_WARNING_Y`／`STARTUP_CONTINUE_Y`（裝置真正重開機才會用到）。
+  - `elapsed=30s`：`STARTUP_LOGIN_CONTINUE_Y` ＋再點一次 `MAP_VIEW_TAP_*` 保底。
+- **繞了不少彎路，記下來避免重踩**：
+  - 一開始設計成「每 20 秒重複掃過所有已知座標」，結果發現**連既有、已在正式機隊沿用的 `STARTUP_WARNING_Y` 座標**，在只有首頁儀表板、沒有真對話框時單獨點擊都可能誤觸「完成N場探索」進度條，被帶去不相干的活動／挑戰選單——這是既有座標本身就有、這次才發現的限制，不是新問題；重複點擊只會放大這個風險，不會收斂。
+  - 試過加 `KEYCODE_BACK` 想收斂，結果從首頁儀表板按 BACK（沒有更上層畫面可退）會把遊戲整個切到背景、跳出到桌面或其他 App——比任何誤觸都更糟（掃描完全停擺，需要人工切回遊戲），已完全移除。
+  - 最終定案：不重複、不用 BACK、把已驗證最可靠的動作排最前面。**端對端在 f40b1e06 上重複驗證多次穩定成功**（force-stop 重啟遊戲 → 8 秒後自動回到地圖畫面 → 擷取正常）。
+- `SPEED_WARNING_TAP_*` 座標只驗證過「對話框存在時會被觸發」，沒有機會刻意重現「我不是司機」對話框驗證點擊精準度（那次是意外撞見）。
+- `AGENT_VERSION` 2.1.0→2.2.0。
+
+### 四、獨立運作驗證（南美，未接正式機隊前）
+用 `MAP_VIEW_TAP` 手動進地圖後，寫 `scratchpad/run_sa_scan.py`（不在 repo 內，純測試腳本）：
+- 10 分鐘、6 城市：零重複、零重啟，通過門檻。
+- 1 小時、15 城市（聖保羅/里約/布宜諾斯艾利斯/波哥大/利馬/聖地牙哥/卡拉卡斯/基多/蒙特維多/拉巴斯/亞松森/麥德林/巴西利亞/薩爾瓦多/科爾多瓦）：**530 筆、100% 不重複、全程零重啟**。等級分布 Lv2=523(98.7%)／Lv3=7(1.3%)，當天（週四）沒有 Lv4（使用者確認合理，巨大蘑菇通常綁定週末/官方活動）。
+
+### 五、這台手機正式加入機隊（agent5）
+- 使用者透過 `mush.odyliao.cc/admin`（OpenAI workspace 登入，`adminAuthorized` 檢查 `oai-authenticated-user-email`）自行 enroll，給了 `AGENT_ID=agent5-9431de09` 與一次性 token（**沒有寫入任何會進 git 的檔案**，只存在手機上的本機 config）。
+- 部署細節／踩雷：
+  - `agent.sh` 的 `MODDIR=${0%/*}` 用相對路徑執行（`sh agent.sh`）會算錯目錄（`$0` 沒有 `/` 時 `${0%/*}` 不會 strip 掉任何東西），必須用絕對路徑 `sh /data/local/tmp/agent5/agent.sh`——這是舊 code 本來就有的小陷阱，跟今晚改動無關。
+  - device config 的觸控座標**必須用這台裝置實測過的真實 1080x2400 像素值**，不能直接套用 `config.example` 裡 720x1600（virtual display 基準）的預設值——`agent.sh` 不會自動依解析度換算。
+- 啟動後立即在正式任務佇列拿到既有任務（越南 5243 點，跟另外 3 台機隊共用同一佇列、搶不同點，任務點號因此跳來跳去）。**實測到一次完整的 `direct refresh timeout → fallback → cold restart → 復原成功（source=object）` 全流程**，206 秒後正常接續，之後連續多點都是 `mode=direct` 8-11 秒完成——今晚修的復原邏輯在正式環境第一次實戰考驗通過。
+
+### 六、後台效率參數調整（`site/lib/scan-plans.ts` / `site/app/admin/admin-client.tsx`，**尚未部署**）
+使用者要求：更多城市、範圍從市中心擴大到含郊區（數公里）、跨城市時間壓到 10 秒、機制未來要推廣到所有 agent。
+- **跨城市冷卻公式**：原本 `max(設定值, min(120, 距離公里/10))`——不管 `cooldownS` 設多低，遠距離城市永遠至少等到接近 120 秒。今晚的瞬移實測（含洲際跳點）沒有觀察到距離造成任何額外失敗率或延遲，這個按距離疊加的安全邊際沒有實測依據，**已拿掉，改成直接用 `cooldownS`**（預設 45→10）。
+- **`radiusKm` 預設 2km→8km**（市中心→含郊區）。副作用：搭配 `gridStepM=350`，單一城市點數暴增約 40 倍（49→2116 點）。
+- **任務點數上限 10,000→30,000**：使用者選擇「提高上限」而非壓低廣度或深度，但**沒有直接衝到「全世界 65 個城市包＋滿 8km」需要的近百萬點**——那個量級沒有實測過會不會讓 `materializeTargets()` 的 D1 batch 寫入（每 50 個 statement 一次 `db.batch()`）觸發 Cloudflare Worker 執行時間逾時，先求穩，之後真的要衝更大需要把 materialize 改成非同步/分批背景處理（不在這次最小成本改動範圍內）。
+- 後台管理頁加「全選全世界」一鍵按鈕；補上台灣、加拿大兩個原本缺的城市包（現在共 65 個城市包、443 個城市）。
+
+### 七、卡住的地方：部署需要 Codex Sites 平台憑證，Claude Code 沒有
+`mush.odyliao.cc` 部署流程（見 `CLAUDE_HANDOFF.md` §11.3）：`npm test` → commit → `git subtree split --prefix site` → **取得短效 Sites source credential** → push 到 `codex-sites` remote（`git.chatgpt-team.site/.../appgprj_....git`，已存在但憑證已失效）→ 用 Sites `package-site.sh` → save version → deploy version → poll succeeded。**第 4 步「取得短效 Sites source credential」需要 OpenAI Codex CLI 平台的專屬對接能力，這個 session（Claude Code）沒有這個管道**，環境變數、`.git-credentials`、credential helper 都查過，沒有殘留可用的憑證。
+
+### 現況總結
+- **已做、已驗證**：速度效率結論、機隊重啟三層根因、`agent.sh` 復原邏輯修復（多次端對端驗證）、agent5 已連上正式機隊且實戰跑過完整的 fallback 復原流程、後台效率參數改好且過 typecheck/lint。
+- **尚未做**：這批程式碼變更（`phone_agent/*`、`site/lib/scan-plans.ts`、`site/app/admin/admin-client.tsx`、`README.md`、`CLAUDE_HANDOFF.md`）**尚未 commit**（本則之後會 commit＋push 到 GitHub `origin`）；**尚未部署**到正式 `mush.odyliao.cc`（卡在上述憑證問題）；`phone_agent` 修復版也還沒推廣到另外 3 台正式機隊（同樣需要部署管道，或對那些手機的直接存取權）。
+- **下次接手（不論是 Codex 或下一個 Claude session）從哪開始**：① 用 Codex CLI 完成上述部署流程，或提供／協助取得 Sites source credential 給 Claude 直接操作；② 部署後觀察 agent5（及未來擴大到的其他機隊）在新設定下的實際效率，尤其 30,000 點上限附近 `materializeTargets` 的實際耗時；③ 把 `phone_agent/agent.sh` 修復版推廣到另外 3 台正式機隊。
