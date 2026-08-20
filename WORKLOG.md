@@ -153,3 +153,13 @@ cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=ndk/.../android.toolchain.cmake -DANDROID_
 - **現況**：4 台（primary/camellian、agent2、agent4、agent5）**全部在跑 2.2.0**，含這次修的 display-timeout bug。PR #48 已推送，CI 跑完待合併。
 - 未完成：PR #48 尚未合併；`D1_MATERIALIZATION_CAPACITY_TASK`（PR #47）的實測還沒人做；agent2 的 `SPEED_WARNING_TAP` 座標是用既有 `STARTUP_WARNING_Y` 的值估的，沒有實際畫面驗證過。
 - 下次從哪開始：① 合併 PR #48；② 觀察 4 台機隊在新版下運作一段時間是否穩定（尤其確認 `query-only empty streak` 是否顯著下降）；③ Codex 那邊處理 D1 materialization 實測任務。
+
+---
+
+## 2026-08-20（續6）：D1 materialization capacity 實測 — 30,000 點工作目前無法建立
+
+- 依 `D1_MATERIALIZATION_CAPACITY_TASK_2026-08-20.md` 採 **Option A** 在正式後台執行真實工作建立測試。測試配置為「美國東部」（12 城市）＋「貝里斯」（2 城市），`radiusKm=8`、`gridStepM=350`、`dwellS=8`、`hopDelayS=2`、`cooldownS=10`、持續循環；`buildScanPlan()` 的實際結果為 **29,624 點**，距 30,000 點上限 376 點。
+- 測試前先停止既有工作 #120；測試工作建立要求在後台回傳/顯示錯誤 **`D1_ERROR: string or blob too big: SQLITE_TOOBIG`**。UI 操作至取得明確結果的觀測上限為 8.3 秒；這不是 `materializeTargets()` 慢或 Worker timeout。
+- 根因在 `site/app/api/admin/scans/start/route.ts`：它先把完整 `targets` 陣列序列化並寫入 `scan_jobs.plan_json`，再呼叫 `materializeTargets()`。29,624 點的 `plan_json` 已超出 D1/SQLite 單一字串/資料列可接受大小，因此失敗發生在 `scan_jobs` INSERT，`materializeTargets()` **尚未執行**。
+- 結果：此輪 `db.batch()` 呼叫數為 **0**；沒有建立可量測的 job、沒有 `scan_targets` 寫入，因此不存在 partial materialization 或可比對的 target row count。原本「30,000 點 cap」雖在 `buildScanPlan()` 層允許，實際上受 `plan_json` 儲存模型限制而不可達。
+- 後續：先設計並實作不依賴完整 `plan_json` 的可恢復工作描述（例如僅持久化 normalized config/regions、分段生成與寫入 targets，並保存 materialization progress）。完成後再重新執行接近 30,000 點的實測，記錄真正的 batch 數、D1 寫入耗時、完成列數與 Worker headroom；不要把此次 `SQLITE_TOOBIG` 當成同步 materialization 可安全支援 30,000 點的證據。
