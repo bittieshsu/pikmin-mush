@@ -50,6 +50,7 @@
 }
 .dataWarning span { font-size: 12px; }
 .inlineWarning { margin: 0 0 10px; color: #8b5526; font-size: 12px; font-weight: 800; }
+.reportCaption { margin: 0 0 12px; color: #667563; font-size: 12px; line-height: 1.55; }
 
 .healthGrid {
   max-width: 1440px;
