@@ -16,6 +16,16 @@ export type MushroomRow = {
   start_ms: number;
 };
 
+const MUSHROOM_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const MUSHROOM_RETENTION_INTERVAL_SECONDS = 5 * 60;
+const MUSHROOM_RETENTION_BATCH_SIZE = 1_000;
+
+export type MushroomRetentionStatus = {
+  lastRunAt: number;
+  lastDeleted: number;
+  pending: number;
+};
+
 type RuntimeEnv = {
   DB: D1Database;
   AGENT_TOKEN?: string;
@@ -53,6 +63,9 @@ async function patchColumns(db: RuntimeEnv["DB"]) {
     { sql: "ALTER TABLE scan_targets ADD COLUMN verification_batch TEXT NOT NULL DEFAULT ''", verify: "SELECT verification_batch FROM scan_targets LIMIT 1" },
     { sql: "ALTER TABLE scan_targets ADD COLUMN verification_mushroom_id TEXT NOT NULL DEFAULT ''", verify: "SELECT verification_mushroom_id FROM scan_targets LIMIT 1" },
     { sql: "ALTER TABLE scan_targets ADD COLUMN verification_kind TEXT NOT NULL DEFAULT ''", verify: "SELECT verification_kind FROM scan_targets LIMIT 1" },
+    { sql: "ALTER TABLE scan_targets ADD COLUMN verification_result TEXT NOT NULL DEFAULT ''", verify: "SELECT verification_result FROM scan_targets LIMIT 1" },
+    { sql: "ALTER TABLE mushrooms ADD COLUMN giant_recheck_status TEXT NOT NULL DEFAULT ''", verify: "SELECT giant_recheck_status FROM mushrooms LIMIT 1" },
+    { sql: "ALTER TABLE mushrooms ADD COLUMN giant_rechecked_at INTEGER NOT NULL DEFAULT 0", verify: "SELECT giant_rechecked_at FROM mushrooms LIMIT 1" },
   ];
   for (const addition of additions) {
     try {
@@ -96,9 +109,10 @@ async function probeSchema(db: RuntimeEnv["DB"]) {
           previous_token_expires_at || token_rotated_at
           FROM scan_agents LIMIT 1) AS agent_shape,
         (SELECT leased_at || completed_agent_id || priority || required_agent_id ||
-          verification_batch || verification_mushroom_id || verification_kind
+          verification_batch || verification_mushroom_id || verification_kind ||
+          verification_result
           FROM scan_targets LIMIT 1) AS target_shape,
-        (SELECT id FROM mushrooms LIMIT 1) AS mushroom_shape,
+        (SELECT id || giant_recheck_status || giant_rechecked_at FROM mushrooms LIMIT 1) AS mushroom_shape,
         (SELECT id FROM scan_jobs LIMIT 1) AS job_shape,
         (SELECT id FROM scan_logs LIMIT 1) AS log_shape,
         (SELECT id FROM scan_agent_events LIMIT 1) AS event_shape,
@@ -131,10 +145,20 @@ async function initializeSchema() {
       challenger_count INTEGER NOT NULL DEFAULT 0,
       challenger_capacity INTEGER NOT NULL DEFAULT 0,
       total_power REAL NOT NULL DEFAULT 0,
-      start_ms INTEGER NOT NULL DEFAULT 0
+      start_ms INTEGER NOT NULL DEFAULT 0,
+      giant_recheck_status TEXT NOT NULL DEFAULT '',
+      giant_rechecked_at INTEGER NOT NULL DEFAULT 0
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS mushrooms_finish_ms_idx
       ON mushrooms (finish_ms)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS mushrooms_last_seen_id_idx
+      ON mushrooms (last_seen, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS maintenance_state (
+      name TEXT PRIMARY KEY,
+      last_run_at INTEGER NOT NULL DEFAULT 0,
+      last_deleted INTEGER NOT NULL DEFAULT 0,
+      pending INTEGER NOT NULL DEFAULT 0
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS agent_state (
       id INTEGER PRIMARY KEY,
       seq INTEGER NOT NULL DEFAULT 0,
@@ -249,7 +273,8 @@ async function initializeSchema() {
       required_agent_id TEXT NOT NULL DEFAULT '',
       verification_batch TEXT NOT NULL DEFAULT '',
       verification_mushroom_id TEXT NOT NULL DEFAULT '',
-      verification_kind TEXT NOT NULL DEFAULT ''
+      verification_kind TEXT NOT NULL DEFAULT '',
+      verification_result TEXT NOT NULL DEFAULT ''
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS scan_targets_claim_idx
       ON scan_targets (job_id, status, cycle)`),
@@ -487,6 +512,16 @@ export async function upsertMushrooms(rows: MushroomRow[]) {
           THEN excluded.first_seen
         ELSE mushrooms.first_seen
       END,
+      giant_recheck_status=CASE
+        WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
+          THEN ''
+        ELSE mushrooms.giant_recheck_status
+      END,
+      giant_rechecked_at=CASE
+        WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
+          THEN 0
+        ELSE mushrooms.giant_rechecked_at
+      END,
       start_ms=excluded.start_ms`;
   for (let offset = 0; offset < usefulRows.length; offset += 50) {
     const statements = usefulRows.slice(offset, offset + 50).map((row) =>
@@ -497,4 +532,50 @@ export async function upsertMushrooms(rows: MushroomRow[]) {
       ));
     if (statements.length) await db.batch(statements);
   }
+}
+
+function retentionStatus(row: Record<string, unknown> | null | undefined): MushroomRetentionStatus {
+  return {
+    lastRunAt: Number(row?.last_run_at ?? 0),
+    lastDeleted: Number(row?.last_deleted ?? 0),
+    pending: Number(row?.pending ?? 0),
+  };
+}
+
+/**
+ * Keep the public map bounded even for mushrooms whose source did not provide
+ * an expiry time. Agent uploads and map reads both call this function; D1 owns
+ * the five-minute lease so concurrent Worker isolates cannot all purge at once.
+ */
+export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
+  const db = runtime().DB;
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - MUSHROOM_RETENTION_SECONDS;
+  const lockBefore = now - MUSHROOM_RETENTION_INTERVAL_SECONDS;
+
+  await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
+    VALUES ('mushroom-retention')`).run();
+  const claim = await db.prepare(`UPDATE maintenance_state
+      SET last_run_at=?
+      WHERE name='mushroom-retention' AND last_run_at<?`)
+    .bind(now, lockBefore).run();
+  if (Number(claim.meta.changes ?? 0) === 0) {
+    return retentionStatus(await db.prepare(`SELECT last_run_at, last_deleted, pending
+      FROM maintenance_state WHERE name='mushroom-retention'`).first());
+  }
+
+  const candidates = await db.prepare(`SELECT COUNT(*) AS count FROM mushrooms
+    WHERE last_seen < ?`).bind(cutoff).first<{ count: number }>();
+  const eligible = Number(candidates?.count ?? 0);
+  const deleted = await db.prepare(`DELETE FROM mushrooms WHERE id IN (
+      SELECT id FROM mushrooms WHERE last_seen < ?
+      ORDER BY last_seen ASC, id ASC LIMIT ?
+    )`).bind(cutoff, MUSHROOM_RETENTION_BATCH_SIZE).run();
+  const lastDeleted = Number(deleted.meta.changes ?? 0);
+  const pending = Math.max(0, eligible - lastDeleted);
+  await db.prepare(`UPDATE maintenance_state
+      SET last_deleted=?, pending=?
+      WHERE name='mushroom-retention'`)
+    .bind(lastDeleted, pending).run();
+  return { lastRunAt: now, lastDeleted, pending };
 }

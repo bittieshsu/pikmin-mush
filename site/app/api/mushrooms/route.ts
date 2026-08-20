@@ -1,4 +1,6 @@
-import { ensureSchema, noStoreJson, runtime } from "../../../lib/cloud";
+import {
+  ensureSchema, noStoreJson, runMushroomRetention, runtime,
+} from "../../../lib/cloud";
 import { publicAgent, type ScanAgentRow } from "../../../lib/fleet";
 import { MIN_MUSHROOM_LEVEL } from "../../../lib/mushroom-policy.mjs";
 
@@ -38,6 +40,7 @@ function parseBbox(value: string | null) {
 
 export async function GET(request: Request) {
   await ensureSchema();
+  const retention = await runMushroomRetention();
   const now = Date.now();
   const db = runtime().DB;
   const url = new URL(request.url);
@@ -71,7 +74,8 @@ export async function GET(request: Request) {
   }
   const select = `SELECT id, lat, lng, level, type, cluster, cooldown,
       finish_ms, first_seen, last_seen, challenger_count,
-      challenger_capacity, total_power, start_ms
+      challenger_capacity, total_power, start_ms, giant_recheck_status,
+      giant_rechecked_at
     FROM mushrooms WHERE ${where.join(" AND ")}
     ORDER BY last_seen DESC, id DESC${paginated ? " LIMIT ?" : ""}`;
   const mushroomBindings = paginated ? [...bindings, limit + 1] : bindings;
@@ -140,6 +144,12 @@ export async function GET(request: Request) {
       online: agents.some((agent) => agent.online),
       online_count: agents.filter((agent) => agent.online).length,
       total_count: agents.length,
+    },
+    retention: {
+      policy_days: 7,
+      last_run_at: retention.lastRunAt,
+      last_deleted: retention.lastDeleted,
+      pending: retention.pending,
     },
     mushrooms: publicMushrooms,
   });
