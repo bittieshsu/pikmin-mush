@@ -66,6 +66,7 @@ async function patchColumns(db: RuntimeEnv["DB"]) {
     { sql: "ALTER TABLE scan_targets ADD COLUMN verification_result TEXT NOT NULL DEFAULT ''", verify: "SELECT verification_result FROM scan_targets LIMIT 1" },
     { sql: "ALTER TABLE mushrooms ADD COLUMN giant_recheck_status TEXT NOT NULL DEFAULT ''", verify: "SELECT giant_recheck_status FROM mushrooms LIMIT 1" },
     { sql: "ALTER TABLE mushrooms ADD COLUMN giant_rechecked_at INTEGER NOT NULL DEFAULT 0", verify: "SELECT giant_rechecked_at FROM mushrooms LIMIT 1" },
+    { sql: "ALTER TABLE mushrooms ADD COLUMN discovered_by_agent_id TEXT NOT NULL DEFAULT ''", verify: "SELECT discovered_by_agent_id FROM mushrooms LIMIT 1" },
   ];
   for (const addition of additions) {
     try {
@@ -141,6 +142,7 @@ async function initializeSchema() {
       cooldown INTEGER NOT NULL DEFAULT 0,
       finish_ms INTEGER NOT NULL DEFAULT 0,
       first_seen INTEGER NOT NULL,
+      discovered_by_agent_id TEXT NOT NULL DEFAULT '',
       last_seen INTEGER NOT NULL,
       challenger_count INTEGER NOT NULL DEFAULT 0,
       challenger_capacity INTEGER NOT NULL DEFAULT 0,
@@ -486,15 +488,15 @@ export function parseTsv(text: string): MushroomRow[] {
   return rows;
 }
 
-export async function upsertMushrooms(rows: MushroomRow[]) {
+export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId = "") {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
   const usefulRows = rows.filter((row) => isUsefulMushroomLevel(row.level));
   const sql = `INSERT INTO mushrooms (
       id, lat, lng, level, type, cluster, cooldown, finish_ms,
-      first_seen, last_seen, challenger_count, challenger_capacity,
+      first_seen, discovered_by_agent_id, last_seen, challenger_count, challenger_capacity,
       total_power, start_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       lat=excluded.lat,
       lng=excluded.lng,
@@ -512,6 +514,11 @@ export async function upsertMushrooms(rows: MushroomRow[]) {
           THEN excluded.first_seen
         ELSE mushrooms.first_seen
       END,
+      discovered_by_agent_id=CASE
+        WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
+          THEN excluded.discovered_by_agent_id
+        ELSE mushrooms.discovered_by_agent_id
+      END,
       giant_recheck_status=CASE
         WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
           THEN ''
@@ -527,7 +534,7 @@ export async function upsertMushrooms(rows: MushroomRow[]) {
     const statements = usefulRows.slice(offset, offset + 50).map((row) =>
       db.prepare(sql).bind(
         row.id, row.lat, row.lng, row.level, row.type, row.cluster,
-        row.cooldown, row.finish_ms, now, now, row.challenger_count,
+        row.cooldown, row.finish_ms, now, discoveredByAgentId, now, row.challenger_count,
         row.challenger_capacity, row.total_power, row.start_ms,
       ));
     if (statements.length) await db.batch(statements);
