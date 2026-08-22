@@ -364,7 +364,12 @@ async function initializeSchema() {
     ) SELECT 'primary', '主要 Agent', '[]', last_seen, current_lat, current_lng,
       uploaded_rows, uploaded_bytes, partial_text, ?, ?
       FROM agent_state WHERE id=1`).bind(now, now),
-    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
+  ]);
+}
+
+async function seedEventSpots(db: RuntimeEnv["DB"]) {
+  const now = Date.now();
+  await db.batch(EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
       id, country, city, name, lat, lng, spot_kind, reward_kind, reward_summary,
       start_at, end_at, cooldown_note, eligibility_note, coordinate_note,
       verification_status, source_title, source_url, last_verified_at, updated_at
@@ -372,8 +377,7 @@ async function initializeSchema() {
       .bind(spot.id, spot.country, spot.city, spot.name, spot.lat, spot.lng, spot.spotKind,
         spot.rewardKind, spot.rewardSummary, spot.startAt, spot.endAt, spot.cooldownNote,
         spot.eligibilityNote, spot.coordinateNote, spot.verificationStatus, spot.sourceTitle,
-        spot.sourceUrl, spot.lastVerifiedAt, now)),
-  ]);
+        spot.sourceUrl, spot.lastVerifiedAt, now)));
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -384,9 +388,12 @@ export async function ensureSchema() {
     const db = runtime().DB;
     if (await probeSchema(db)) {
       columnsPatched = true;
-      return;
+    } else {
+      await initializeSchema();
     }
-    await initializeSchema();
+    // Migrations can create event_spots before a Worker starts. Seed separately
+    // so a migrated, otherwise healthy database cannot serve an empty map.
+    await seedEventSpots(db);
   })();
   schemaReady = attempt;
   try {
