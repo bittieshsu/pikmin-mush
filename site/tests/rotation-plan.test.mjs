@@ -19,29 +19,29 @@ test("switches at 07:30 and 19:30 Asia/Taipei", () => {
 
 test("manual redeploy avoids both current and next scheduled routes", () => {
   const now = Date.parse("2026-08-03T05:00:00Z");
-  const agents = ["primary", "agent-2", "agent-3", "agent-4"];
+  const agents = ["primary", "agent-2", "agent-3"];
   const current = planDailyRotation(agents, now);
   const manual = planManualRedeploy(agents, now);
   const next = planDailyRotation(agents, current.nextSwitchAt);
   const currentIds = new Set(current.assignments.map((item) => item.id));
   const nextIds = new Set(next.assignments.map((item) => item.id));
-  assert.equal(manual.assignments.length, 4);
+  assert.equal(manual.assignments.length, 3);
   assert.equal(manual.assignments.every((item) => !currentIds.has(item.id)), true);
   assert.equal(manual.assignments.every((item) => !nextIds.has(item.id)), true);
-  assert.ok(manual.assignments.every((item) => [26, 27].includes(item.cityCount)));
+  assert.ok(manual.assignments.every((item) => [35, 36, 37].includes(item.cityCount)));
 });
 
-test("assigns four Agents distinct balanced routes and covers all packs in four slots", () => {
+test("assigns three Agents distinct balanced routes and covers all packs in four slots", () => {
   const seenBundles = new Set();
   const seenPacks = new Set();
   for (let slot = 0; slot < ROTATION_DAYS.length; slot += 1) {
     const now = Date.parse("2026-07-21T23:30:00Z") + slot * 12 * 60 * 60_000;
-    const plan = planDailyRotation(["agent-4", "agent-3", "agent-2", "agent-1"], now);
-    assert.equal(plan.assignments.length, 4);
-    assert.equal(new Set(plan.assignments.map((item) => item.id)).size, 4);
+    const plan = planDailyRotation(["agent-3", "agent-2", "agent-1"], now);
+    assert.equal(plan.assignments.length, 3);
+    assert.equal(new Set(plan.assignments.map((item) => item.id)).size, 3);
     const counts = plan.assignments.map((item) => item.cityCount);
     assert.ok(Math.max(...counts) - Math.min(...counts) <= 2);
-    assert.ok(Math.min(...counts) >= 26);
+    assert.ok(Math.min(...counts) >= 35);
     for (const assignment of plan.assignments) {
       seenBundles.add(assignment.id);
       for (const pack of assignment.packs) {
@@ -50,18 +50,18 @@ test("assigns four Agents distinct balanced routes and covers all packs in four 
       }
     }
   }
-  assert.equal(seenBundles.size, 16);
+  assert.equal(seenBundles.size, 12);
   assert.equal(seenPacks.has("tw"), false);
-  assert.equal(seenPacks.size, 67);
+  assert.equal(seenPacks.size, 68);
 });
 
 test("morning and evening assignments never repeat the previous routes or packs", () => {
   const morning = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3", "agent-4"],
+    ["agent-1", "agent-2", "agent-3"],
     Date.parse("2026-07-22T00:00:00Z"),
   );
   const evening = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3", "agent-4"],
+    ["agent-1", "agent-2", "agent-3"],
     Date.parse("2026-07-22T12:00:00Z"),
   );
   const morningRoutes = new Set(morning.assignments.map((item) => item.id));
@@ -72,17 +72,16 @@ test("morning and evening assignments never repeat the previous routes or packs"
   }
 });
 
-test("reverses the four routes between Agents on the next cycle", () => {
+test("reverses the three routes between Agents on the next cycle", () => {
   const first = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3", "agent-4"],
+    ["agent-1", "agent-2", "agent-3"],
     Date.parse("2026-07-22T00:00:00Z"),
   );
   const nextCycle = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3", "agent-4"],
+    ["agent-1", "agent-2", "agent-3"],
     Date.parse("2026-07-24T00:00:00Z"),
   );
-  assert.equal(first.assignments[0].id, nextCycle.assignments[3].id);
-  assert.equal(first.assignments[1].id, nextCycle.assignments[2].id);
-  assert.equal(first.assignments[2].id, nextCycle.assignments[1].id);
-  assert.equal(first.assignments[3].id, nextCycle.assignments[0].id);
+  assert.equal(first.assignments[0].id, nextCycle.assignments[2].id);
+  assert.equal(first.assignments[1].id, nextCycle.assignments[1].id);
+  assert.equal(first.assignments[2].id, nextCycle.assignments[0].id);
 });
