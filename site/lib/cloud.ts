@@ -369,7 +369,13 @@ async function initializeSchema() {
 
 async function seedEventSpots(db: RuntimeEnv["DB"]) {
   const now = Date.now();
-  await db.batch(EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
+  // This early Seattle-wide marker was replaced by three official venue-level
+  // records.  Keep the database seed idempotent while removing the retired
+  // record from deployments that already received the older seed.
+  const retiredSpotIds = ["us-seattle-aquarium-miniwalk"];
+  await db.batch([
+    ...retiredSpotIds.map((id) => db.prepare("DELETE FROM event_spots WHERE id=?").bind(id)),
+    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
       id, country, city, name, lat, lng, spot_kind, reward_kind, reward_summary,
       start_at, end_at, cooldown_note, eligibility_note, coordinate_note,
       verification_status, source_title, source_url, last_verified_at, updated_at
@@ -377,7 +383,8 @@ async function seedEventSpots(db: RuntimeEnv["DB"]) {
       .bind(spot.id, spot.country, spot.city, spot.name, spot.lat, spot.lng, spot.spotKind,
         spot.rewardKind, spot.rewardSummary, spot.startAt, spot.endAt, spot.cooldownNote,
         spot.eligibilityNote, spot.coordinateNote, spot.verificationStatus, spot.sourceTitle,
-        spot.sourceUrl, spot.lastVerifiedAt, now)));
+        spot.sourceUrl, spot.lastVerifiedAt, now)),
+  ]);
 }
 
 let schemaReady: Promise<void> | null = null;
