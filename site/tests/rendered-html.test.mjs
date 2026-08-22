@@ -46,14 +46,17 @@ test("ships the public mushroom map and protected scan console", async () => {
 });
 
 test("hardens uploads, public telemetry, controller credentials, and browser policy", async () => {
-  const [upload, publicApi, cloud, controller, phoneAgent, worker, map, headers] = await Promise.all([
+  const [upload, publicApi, eventSpotsApi, eventSpots, cloud, controller, phoneAgent, worker, map, eventSpotsPage, headers] = await Promise.all([
     readFile(new URL("app/api/agent/upload/route.ts", root), "utf8"),
     readFile(new URL("app/api/mushrooms/route.ts", root), "utf8"),
+    readFile(new URL("app/api/event-spots/route.ts", root), "utf8"),
+    readFile(new URL("lib/event-spots.ts", root), "utf8"),
     readFile(new URL("lib/cloud.ts", root), "utf8"),
     readFile(new URL("app/api/controller/command/route.ts", root), "utf8"),
     readFile(new URL("../phone_agent/agent.sh", root), "utf8"),
     readFile(new URL("worker/index.ts", root), "utf8"),
     readFile(new URL("public/map.html", root), "utf8"),
+    readFile(new URL("public/event-spots.html", root), "utf8"),
     readFile(new URL("public/_headers", root), "utf8"),
   ]);
 
@@ -72,13 +75,22 @@ test("hardens uploads, public telemetry, controller credentials, and browser pol
   assert.match(worker, /Content-Security-Policy/);
   assert.match(headers, /Strict-Transport-Security/);
   assert.match(headers, /Content-Security-Policy/);
+  assert.match(eventSpotsApi, /ensureSchema/);
+  assert.match(eventSpotsApi, /\["active", "all", "ended"\]\.includes\(requestedStatus\)/);
+  assert.match(eventSpots, /jp-nintendo-tokyo/);
+  assert.match(eventSpots, /jp-miyajima-terrace/);
+  assert.match(eventSpotsPage, /活動金盆地圖/);
+  assert.match(eventSpotsPage, /api\/event-spots/);
+  assert.match(eventSpotsPage, /data-copy=/);
 
-  const inlineScript = map.match(/<script>([\s\S]*)<\/script><\/body>/)?.[1];
-  assert.ok(inlineScript, "map inline script must remain detectable for CSP hashing");
-  const expected = `sha256-${createHash("sha256")
-    .update(inlineScript.replace(/\r\n/g, "\n")).digest("base64")}`;
-  assert.match(worker, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(headers, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const [name, html] of [["map", map], ["event spots", eventSpotsPage]]) {
+    const inlineScript = html.match(/<script>([\s\S]*)<\/script><\/body>/)?.[1];
+    assert.ok(inlineScript, `${name} inline script must remain detectable for CSP hashing`);
+    const expected = `sha256-${createHash("sha256")
+      .update(inlineScript.replace(/\r\n/g, "\n")).digest("base64")}`;
+    assert.match(worker, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(headers, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
 });
 
 test("includes durable multi-agent leases, v2 protocol routes, and migrations", async () => {

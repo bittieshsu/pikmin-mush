@@ -28,6 +28,18 @@ export const maintenanceState = sqliteTable("maintenance_state", {
   pending: integer("pending").notNull().default(0),
 });
 
+export const eventSpots = sqliteTable("event_spots", {
+  id: text("id").primaryKey(),
+  country: text("country").notNull(), city: text("city").notNull(), name: text("name").notNull(),
+  lat: real("lat").notNull(), lng: real("lng").notNull(), spotKind: text("spot_kind").notNull(),
+  rewardKind: text("reward_kind").notNull(), rewardSummary: text("reward_summary").notNull(),
+  startAt: integer("start_at").notNull().default(0), endAt: integer("end_at").notNull().default(0),
+  cooldownNote: text("cooldown_note").notNull().default(""), eligibilityNote: text("eligibility_note").notNull().default(""),
+  coordinateNote: text("coordinate_note").notNull().default(""), verificationStatus: text("verification_status").notNull(),
+  sourceTitle: text("source_title").notNull(), sourceUrl: text("source_url").notNull(),
+  lastVerifiedAt: integer("last_verified_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("event_spots_active_idx").on(table.endAt, table.country)]);
+
 export const agentState = sqliteTable("agent_state", {
   id: integer("id").primaryKey(),
   seq: integer("seq").notNull().default(0),
