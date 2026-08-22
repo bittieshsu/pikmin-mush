@@ -20,6 +20,7 @@ interface ExecutionContext {
 }
 
 const MAP_SCRIPT_HASH = "'sha256-fPyFE9ky66lRwyHyN0OXYSB9q3YydF4tjKtptx+Kt7M='";
+const EVENT_SPOTS_SCRIPT_HASH = "'sha256-uJ12ohxrD5i47AfdBTyykagBqLSDsVXCxqZ+q8HPrYo='";
 
 function withSecurityHeaders(response: Response, strictMap = false) {
   const secured = new Response(response.body, response);
@@ -31,7 +32,7 @@ function withSecurityHeaders(response: Response, strictMap = false) {
   secured.headers.set("Content-Security-Policy", strictMap
     ? [
         "default-src 'self'",
-        `script-src 'self' https://unpkg.com ${MAP_SCRIPT_HASH}`,
+        `script-src 'self' https://unpkg.com ${MAP_SCRIPT_HASH} ${EVENT_SPOTS_SCRIPT_HASH}`,
         "style-src 'self' 'unsafe-inline' https://unpkg.com",
         "img-src 'self' data: https://*.tile.openstreetmap.org",
         "connect-src 'self'",
@@ -55,8 +56,9 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/map.html") {
-      const assetUrl = new URL("/map.html", request.url);
+    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/map.html" ||
+        url.pathname === "/event-spots.html") {
+      const assetUrl = new URL(url.pathname === "/event-spots.html" ? "/event-spots.html" : "/map.html", request.url);
       return withSecurityHeaders(
         await env.ASSETS.fetch(new Request(assetUrl, request)), true,
       );

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isUsefulMushroomLevel } from "./mushroom-policy.mjs";
+import { EVENT_SPOT_SEED } from "./event-spots";
 
 export type MushroomRow = {
   id: string;
@@ -87,6 +88,7 @@ type SchemaProbeRow = {
   scanner_status_ready: number;
   rotation_ready: number;
   primary_ready: number;
+  event_spots_shape?: string;
 };
 
 function missingSchema(error: unknown) {
@@ -114,13 +116,14 @@ async function probeSchema(db: RuntimeEnv["DB"]) {
           verification_result
           FROM scan_targets LIMIT 1) AS target_shape,
         (SELECT id || giant_recheck_status || giant_rechecked_at FROM mushrooms LIMIT 1) AS mushroom_shape,
+        (SELECT id FROM event_spots LIMIT 1) AS event_spots_shape,
         (SELECT id FROM scan_jobs LIMIT 1) AS job_shape,
         (SELECT id FROM scan_logs LIMIT 1) AS log_shape,
         (SELECT id FROM scan_agent_events LIMIT 1) AS event_shape,
         (SELECT schedule_date FROM scan_rotation_runs LIMIT 1) AS rotation_run_shape`)
       .first<SchemaProbeRow>();
     return Boolean(row?.agent_state_ready && row.scanner_status_ready &&
-      row.rotation_ready && row.primary_ready);
+      row.rotation_ready && row.primary_ready && row.event_spots_shape !== undefined);
   } catch (error) {
     if (missingSchema(error)) return false;
     // A transient D1 failure must fail this request rather than trigger dozens
@@ -155,6 +158,29 @@ async function initializeSchema() {
       ON mushrooms (finish_ms)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS mushrooms_last_seen_id_idx
       ON mushrooms (last_seen, id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS event_spots (
+      id TEXT PRIMARY KEY,
+      country TEXT NOT NULL,
+      city TEXT NOT NULL,
+      name TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      spot_kind TEXT NOT NULL,
+      reward_kind TEXT NOT NULL,
+      reward_summary TEXT NOT NULL,
+      start_at INTEGER NOT NULL DEFAULT 0,
+      end_at INTEGER NOT NULL DEFAULT 0,
+      cooldown_note TEXT NOT NULL DEFAULT '',
+      eligibility_note TEXT NOT NULL DEFAULT '',
+      coordinate_note TEXT NOT NULL DEFAULT '',
+      verification_status TEXT NOT NULL,
+      source_title TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      last_verified_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS event_spots_active_idx
+      ON event_spots (end_at, country)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS maintenance_state (
       name TEXT PRIMARY KEY,
       last_run_at INTEGER NOT NULL DEFAULT 0,
@@ -338,6 +364,15 @@ async function initializeSchema() {
     ) SELECT 'primary', '主要 Agent', '[]', last_seen, current_lat, current_lng,
       uploaded_rows, uploaded_bytes, partial_text, ?, ?
       FROM agent_state WHERE id=1`).bind(now, now),
+    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
+      id, country, city, name, lat, lng, spot_kind, reward_kind, reward_summary,
+      start_at, end_at, cooldown_note, eligibility_note, coordinate_note,
+      verification_status, source_title, source_url, last_verified_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(spot.id, spot.country, spot.city, spot.name, spot.lat, spot.lng, spot.spotKind,
+        spot.rewardKind, spot.rewardSummary, spot.startAt, spot.endAt, spot.cooldownNote,
+        spot.eligibilityNote, spot.coordinateNote, spot.verificationStatus, spot.sourceTitle,
+        spot.sourceUrl, spot.lastVerifiedAt, now)),
   ]);
 }
 
