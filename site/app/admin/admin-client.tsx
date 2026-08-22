@@ -656,7 +656,7 @@ export default function AdminClient({
       <section className={styles.fleetPanel}>
         <div className={styles.panelTitle}>
           <div><span>AGENT FLEET</span><h2>全球掃描節點</h2></div>
-          <small>每日 07:30、19:30（台北時間）重新分配四條互不重疊路線，且不沿用前一時段；4 個時段覆蓋全部國家包。</small>
+          <small>每日 07:30、19:30（台北時間）重新分配三條互不重疊路線，且不沿用前一時段；4 個時段覆蓋全部非台灣國家包。</small>
         </div>
         <div className={styles.agentGrid}>
           {dashboard?.agents.map((agent) => (
