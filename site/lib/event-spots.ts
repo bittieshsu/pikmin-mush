@@ -268,7 +268,7 @@ export const EVENT_SPOT_SEED: EventSpotSeed[] = [
   // ---- 香港（永久 Special Spot） ----
   {
     id: "hk-nsew-kmusea", country: "香港", city: "尖沙咀", name: "nsew — K11 MUSEA",
-    lat: 22.293800, lng: 114.173500, spotKind: "permanent", rewardKind: "gold_seedling",
+    lat: 22.294680, lng: 114.174150, spotKind: "permanent", rewardKind: "gold_seedling",
     rewardSummary: "紅色照片鈕扣徽章飾品皮克敏金色花苗", startAt: 0, endAt: 0,
     cooldownNote: "每日最多 1 次", eligibilityNote: "需在 Special Spot 附近，並以遊戲顯示為準",
     coordinateNote: "K11 MUSEA B2/F Shop B211 場館座標；請以遊戲地圖確認", verificationStatus: "official",
@@ -276,7 +276,7 @@ export const EVENT_SPOT_SEED: EventSpotSeed[] = [
   },
   {
     id: "hk-nsew-kaitak", country: "香港", city: "九龍城", name: "nsew — 啟德體育園",
-    lat: 22.328000, lng: 114.201000, spotKind: "permanent", rewardKind: "gold_seedling",
+    lat: 22.321850, lng: 114.195300, spotKind: "permanent", rewardKind: "gold_seedling",
     rewardSummary: "紅色照片鈕扣徽章飾品皮克敏金色花苗", startAt: 0, endAt: 0,
     cooldownNote: "每日最多 1 次", eligibilityNote: "需在 Special Spot 附近，並以遊戲顯示為準",
     coordinateNote: "啟德體育園 Kai Tak Mall 2 場館座標；請以遊戲地圖確認", verificationStatus: "official",
@@ -284,7 +284,7 @@ export const EVENT_SPOT_SEED: EventSpotSeed[] = [
   },
   {
     id: "hk-nsew-thewai", country: "香港", city: "大圍", name: "nsew — The Wai",
-    lat: 22.375700, lng: 114.179900, spotKind: "permanent", rewardKind: "gold_seedling",
+    lat: 22.372550, lng: 114.178720, spotKind: "permanent", rewardKind: "gold_seedling",
     rewardSummary: "紅色照片鈕扣徽章飾品皮克敏金色花苗", startAt: 0, endAt: 0,
     cooldownNote: "每日最多 1 次", eligibilityNote: "需在 Special Spot 附近，並以遊戲顯示為準",
     coordinateNote: "The Wai 3/F Shop 314 場館座標；請以遊戲地圖確認", verificationStatus: "official",
