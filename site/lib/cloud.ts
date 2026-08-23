@@ -369,10 +369,16 @@ async function initializeSchema() {
 
 async function seedEventSpots(db: RuntimeEnv["DB"]) {
   const now = Date.now();
-  // This early Seattle-wide marker was replaced by three official venue-level
-  // records.  Keep the database seed idempotent while removing the retired
-  // record from deployments that already received the older seed.
-  const retiredSpotIds = ["us-seattle-aquarium-miniwalk"];
+  // These earlier Seattle markers were replaced by nine specific Special Spot
+  // records (community-sourced coordinates).  Keep the database seed
+  // idempotent while removing retired records from deployments that already
+  // received an older seed.
+  const retiredSpotIds = [
+    "us-seattle-aquarium-miniwalk",
+    "us-seattle-aquarium-pier59",
+    "us-seattle-aquarium-pier60",
+    "us-seattle-aquarium-ocean-pavilion",
+  ];
   await db.batch([
     ...retiredSpotIds.map((id) => db.prepare("DELETE FROM event_spots WHERE id=?").bind(id)),
     ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
