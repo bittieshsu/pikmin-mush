@@ -2,8 +2,8 @@
 param(
     [string]$BuildRoot = '',
     [string]$OutputPath = '',
-    [string]$GameVersion = '150.0',
-    [int]$GameVersionCode = 1784893753
+    [string]$GameVersion = '151.0',
+    [int]$GameVersionCode = 1786062771
 )
 
 $ErrorActionPreference = 'Stop'
