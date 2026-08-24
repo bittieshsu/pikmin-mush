@@ -437,17 +437,18 @@ void il2cpp_dump(const char *outDir) {
 // instead of patching an unrelated function.
 #define TARGET_PIKMIN_VERSION "151.0"
 #define TARGET_PIKMIN_VERSION_CODE 1786062771
-// 151.0 moved map object registration from MapManager to MapObjectManager and
-// added MapObjectTag as its second argument.  The old three-argument trampoline
-// corrupts the call frame when entering map and expedition views.
-#define RVA_RegisterMapObject 0x59E4ADC
+// 151.0 retains the MapManager registration callback that receives the
+// MapPoiBlocker instances used by the scanner.  MapObjectManager has a distinct
+// two-argument UI registration method, but it is not the callback that
+// materializes the live mushroom objects on the map.
+#define RVA_RegisterMapObject 0xCE1B374
 #define RVA_LocationController_Update 0x715877C
 #define RVA_SetOverride 0x71593B0
 #define RVA_MapQueryManager_OnMapQueryResponse 0xCBABD3C
 
 static const uint8_t SIG_RegisterMapObject[] = {
-    0xFE, 0x0F, 0x1D, 0xF8, 0xF6, 0x57, 0x01, 0xA9,
-    0xF4, 0x4F, 0x02, 0xA9, 0x01, 0x03, 0x00, 0xB4
+    0xFE, 0x67, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
+    0xF6, 0x57, 0x02, 0xA9, 0xF4, 0x4F, 0x03, 0xA9
 };
 static const uint8_t SIG_LocationController_Update[] = {
     0xFF, 0x83, 0x03, 0xD1, 0xE8, 0x4B, 0x00, 0xFD,
@@ -560,12 +561,10 @@ static void read_cs_string(void *s, char *out, size_t outsz) {
     out[j] = 0;
 }
 
-typedef void (*RegisterMapObject_t)(void *thiz, void *obj, int map_object_tag,
-                                    void *method);
+typedef void (*RegisterMapObject_t)(void *thiz, void *obj, void *method);
 static RegisterMapObject_t orig_RegisterMapObject = nullptr;
 
-static void hooked_RegisterMapObject(void *thiz, void *obj, int map_object_tag,
-                                     void *method) {
+static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
     capture_map_manager(thiz);
     if (obj) {
         const char *cname = "?";
@@ -637,7 +636,7 @@ static void hooked_RegisterMapObject(void *thiz, void *obj, int map_object_tag,
         }
     }
     if (orig_RegisterMapObject) {
-        orig_RegisterMapObject(thiz, obj, map_object_tag, method);
+        orig_RegisterMapObject(thiz, obj, method);
     }
 }
 
