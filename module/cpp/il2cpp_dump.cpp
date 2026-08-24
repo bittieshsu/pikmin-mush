@@ -431,20 +431,23 @@ void il2cpp_dump(const char *outDir) {
 #include <ctime>
 #include <map>
 
-// Pikmin Bloom v150.0 / versionCode 1784893753.
+// Pikmin Bloom v151.0 / versionCode 1786062771.
 // These RVAs and prologue signatures are version-locked. Refuse to install any hook
 // when the loaded libil2cpp does not match, so a future game update fails closed
 // instead of patching an unrelated function.
-#define TARGET_PIKMIN_VERSION "150.0"
-#define TARGET_PIKMIN_VERSION_CODE 1784893753
-#define RVA_RegisterMapObject 0xCC04EC4
-#define RVA_LocationController_Update 0x706E19C
-#define RVA_SetOverride 0x706EDB8
-#define RVA_MapQueryManager_OnMapQueryResponse 0xC998610
+#define TARGET_PIKMIN_VERSION "151.0"
+#define TARGET_PIKMIN_VERSION_CODE 1786062771
+// 151.0 moved map object registration from MapManager to MapObjectManager and
+// added MapObjectTag as its second argument.  The old three-argument trampoline
+// corrupts the call frame when entering map and expedition views.
+#define RVA_RegisterMapObject 0x59E4ADC
+#define RVA_LocationController_Update 0x715877C
+#define RVA_SetOverride 0x71593B0
+#define RVA_MapQueryManager_OnMapQueryResponse 0xCBABD3C
 
 static const uint8_t SIG_RegisterMapObject[] = {
-    0xFE, 0x67, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
-    0xF6, 0x57, 0x02, 0xA9, 0xF4, 0x4F, 0x03, 0xA9
+    0xFE, 0x0F, 0x1D, 0xF8, 0xF6, 0x57, 0x01, 0xA9,
+    0xF4, 0x4F, 0x02, 0xA9, 0x01, 0x03, 0x00, 0xB4
 };
 static const uint8_t SIG_LocationController_Update[] = {
     0xFF, 0x83, 0x03, 0xD1, 0xE8, 0x4B, 0x00, 0xFD,
@@ -557,10 +560,12 @@ static void read_cs_string(void *s, char *out, size_t outsz) {
     out[j] = 0;
 }
 
-typedef void (*RegisterMapObject_t)(void *thiz, void *obj, void *method);
+typedef void (*RegisterMapObject_t)(void *thiz, void *obj, int map_object_tag,
+                                    void *method);
 static RegisterMapObject_t orig_RegisterMapObject = nullptr;
 
-static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
+static void hooked_RegisterMapObject(void *thiz, void *obj, int map_object_tag,
+                                     void *method) {
     capture_map_manager(thiz);
     if (obj) {
         const char *cname = "?";
@@ -631,7 +636,9 @@ static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
             }
         }
     }
-    if (orig_RegisterMapObject) orig_RegisterMapObject(thiz, obj, method);
+    if (orig_RegisterMapObject) {
+        orig_RegisterMapObject(thiz, obj, map_object_tag, method);
+    }
 }
 
 // ==================== Auto teleport ====================

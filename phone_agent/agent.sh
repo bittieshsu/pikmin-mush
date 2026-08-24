@@ -69,7 +69,7 @@ AGENT_ID="${AGENT_ID:-primary}"
 AGENT_VERSION="${AGENT_VERSION:-2.2.0}"
 GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
   sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')}"
-MODULE_VERSION="${MODULE_VERSION:-150.0}"
+MODULE_VERSION="${MODULE_VERSION:-151.0}"
 QUERY_ONLY_STREAK=0
 [ -n "$TOKEN" ] || TOKEN="$(cat "$MODDIR/token" 2>/dev/null)"
 if [ -z "$TOKEN" ]; then
