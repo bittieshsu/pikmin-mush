@@ -653,6 +653,22 @@ execute_scan_task() {
     if [ "$REFRESH_SOURCE" = "query" ] && [ "$NEW_ROWS" -eq 0 ]; then
       QUERY_ONLY_STREAK=$((QUERY_ONLY_STREAK + 1))
       echo "[scan] query-only empty streak=$QUERY_ONLY_STREAK/$QUERY_ONLY_RESTART_STREAK"
+      # A map-query response proves that the GPS override and backend round trip
+      # worked, but it does *not* prove that the live map is visible.  In 151.0
+      # the speed/restricted-area acknowledgement can sit above the dashboard:
+      # query callbacks still arrive there, while RegisterMapObject cannot run.
+      # Do this bounded recovery on the first empty response instead of waiting
+      # for twelve query-only points (which previously left an Agent idle for
+      # several minutes behind one acknowledgement dialog).  The first tap
+      # dismisses the known warning; the second opens the dashboard map.  Each
+      # is made at most once per query-only streak, so it cannot become a blind
+      # repeating tap loop on a different screen.
+      if [ "$QUERY_ONLY_STREAK" -eq 1 ]; then
+        echo "[scan] query-only recovery: dismiss warning and open map"
+        game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
+        interruptible_wait 1 "$JOB_ID" || return
+        game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+      fi
       if [ "$QUERY_ONLY_STREAK" -ge "$(number_or_zero "$QUERY_ONLY_RESTART_STREAK")" ]; then
         echo "[scan] query-only streak reached; cold restarting game at current GPS"
         if restart_game_for_scan "$JOB_ID" "$REFRESH_TOKEN"; then
