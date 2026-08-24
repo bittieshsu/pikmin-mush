@@ -207,9 +207,10 @@ export default function AdminClient({
 }) {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [mode, setMode] = useState<"auto" | "custom">("auto");
+  const [scanProfile, setScanProfile] = useState<"global" | "precision">("global");
   const [packs, setPacks] = useState<string[]>(["日本"]);
   const [radiusKm, setRadiusKm] = useState(8);
-  const [gridStepM, setGridStepM] = useState(350);
+  const [gridStepM, setGridStepM] = useState(1000);
   const [dwellS, setDwellS] = useState(8);
   const [hopDelayS, setHopDelayS] = useState(2);
   const [cooldownS, setCooldownS] = useState(10);
@@ -347,7 +348,7 @@ export default function AdminClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode, countryPacks: packs, radiusKm, gridStepM,
+          mode, scanProfile, countryPacks: packs, radiusKm, gridStepM,
           dwellS, hopDelayS, cooldownS, loop, custom,
         }),
       });
@@ -875,6 +876,21 @@ export default function AdminClient({
 
           <fieldset>
             <legend>掃描參數</legend>
+            <div className={styles.profileChoices} role="radiogroup" aria-label="掃描密度模式">
+              <button type="button" className={scanProfile === "global" ? styles.profileSelected : ""}
+                aria-pressed={scanProfile === "global"}
+                onClick={() => { setScanProfile("global"); setGridStepM(1000); }}>
+                全域預設・1km
+              </button>
+              <button type="button" className={scanProfile === "precision" ? styles.profileSelected : ""}
+                aria-pressed={scanProfile === "precision"}
+                onClick={() => { setScanProfile("precision"); setGridStepM(500); }}>
+                精細模式・500m
+              </button>
+            </div>
+            <p className={styles.profileHint}>{scanProfile === "global"
+              ? "每完成一輪就錯開半格，避免反覆掃到同一批座標。"
+              : "固定 500m 網格，適合短期針對單一區域加密掃描。"}</p>
             <div className={styles.inputGrid}>
               {mode === "auto" && (
                 <label><span>每城中心半徑（km）</span>
@@ -882,9 +898,9 @@ export default function AdminClient({
                     value={radiusKm} onChange={(event) => setRadiusKm(Number(event.target.value))} />
                 </label>
               )}
-              <label><span>網格間距（m）</span>
+              <label><span>網格間距（m，依模式固定）</span>
                 <input type="number" min="100" max="2000" value={gridStepM}
-                  onChange={(event) => setGridStepM(Number(event.target.value))} />
+                  readOnly aria-readonly="true" />
               </label>
               <label><span>每點等待（秒）</span>
                 <input type="number" min="3" max="120" value={dwellS}

@@ -43,6 +43,10 @@ function scanConfig(base: unknown, packs: string[]): ScanConfig {
     ...previous,
     mode: "auto",
     countryPacks: packs,
+    // Scheduled fleet coverage always returns to the 1km global profile.
+    // Do not inherit a one-off 500m precision run into the next 07:30/19:30
+    // rotation, otherwise the queue can unexpectedly grow fourfold.
+    scanProfile: "global",
     loop: true,
   });
 }

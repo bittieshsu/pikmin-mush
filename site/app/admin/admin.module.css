@@ -369,6 +369,20 @@
 .loop { display: flex; align-items: center; gap: 7px; font-size: 13px; }
 .loop input { accent-color: #4c8a59; }
 
+.profileChoices { display: flex; gap: 8px; flex-wrap: wrap; }
+.profileChoices button {
+  padding: 9px 12px;
+  border: 1px solid #cfd9cb;
+  border-radius: 10px;
+  color: #52664f;
+  background: #fbfcf9;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.profileChoices button.profileSelected { border-color: #4c8a59; color: #fff; background: #4c8a59; }
+.profileHint { margin: 8px 0 12px; color: #667563; font-size: 12px; line-height: 1.45; }
+
 .inputGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .inputGrid label { display: grid; gap: 5px; }
 .inputGrid span { color: #6f786d; font-size: 12px; font-weight: 800; }

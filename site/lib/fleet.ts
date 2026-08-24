@@ -2,6 +2,7 @@ import { ensureSchema, runtime, safeEqual } from "./cloud";
 import { activeJob, appendScanLog, parseJobConfig, parseJobPlan, type ScanJobRow } from "./scans";
 import { ensureDailyRotation } from "./rotation";
 import { materializeTargets } from "./targets";
+import { buildScanPlan, normalizeScanConfig } from "./scan-plans";
 import {
   HEARTBEAT_SAMPLE_MS, agentHealth, recordAgentEvent, versionCompatibility,
 } from "./metrics";
@@ -301,14 +302,16 @@ async function resetLoop(job: ScanJobRow) {
     .bind(nextCycle, now, `第 ${nextCycle} 輪完成，重新分派掃描點`,
       job.id, job.cycle, job.id, job.id).run();
   if (!won.meta.changes) return false;
-  await db.prepare(`DELETE FROM scan_targets
-    WHERE job_id=? AND verification_kind<>''`).bind(job.id).run();
-  await db.prepare(`UPDATE scan_targets SET cycle=?, status='queued',
-      lease_agent_id='', lease_token='', leased_at=0, lease_expires_at=0,
-      captured_rows=0, captured_bytes=0, error='', completed_at=0,
-      completed_agent_id='', updated_at=?
-    WHERE job_id=? AND verification_kind=''`).bind(nextCycle, now, job.id).run();
-  await appendScanLog(job.id, "info", `第 ${nextCycle} 輪開始，多 Agent 重新分派`);
+  const config = normalizeScanConfig(parseJobConfig(job));
+  const { targets } = buildScanPlan(config, null, { cycle: nextCycle });
+  // A shifted global grid can have a different point count.  Rebuild its
+  // ordinary targets rather than relabelling the previous cycle's rows.
+  await db.prepare("DELETE FROM scan_targets WHERE job_id=?").bind(job.id).run();
+  await materializeTargets(job.id, targets, { cycle: nextCycle });
+  await db.prepare(`UPDATE scan_jobs SET total_points=?, plan_json=?, updated_at=?
+    WHERE id=? AND cycle=?`).bind(targets.length, JSON.stringify(targets), now, job.id, nextCycle).run();
+  const profile = config.scanProfile === "precision" ? "500m 精細固定網格" : "1km 偏移網格";
+  await appendScanLog(job.id, "info", `第 ${nextCycle} 輪開始：${profile}，${targets.length} 點`);
   return true;
 }
 

@@ -19,6 +19,8 @@ export type ScanTarget = {
 
 export type ScanConfig = {
   mode: "auto" | "custom";
+  /** Global coverage is sparse and shifts every completed loop; precision is fixed 500m. */
+  scanProfile: "global" | "precision";
   countryPacks: string[];
   radiusKm: number;
   gridStepM: number;
@@ -578,16 +580,22 @@ export function normalizeScanConfig(input: unknown): ScanConfig {
   const mode = body.mode === "custom" ? "custom" : "auto";
   const customBody = (body.custom && typeof body.custom === "object" ?
     body.custom : {}) as Record<string, unknown>;
+  const scanProfile = body.scanProfile === "precision" ? "precision" : "global";
+  // A profile is deliberately authoritative.  It prevents an old saved 350m
+  // setting from silently surviving a global redeploy, while keeping legacy
+  // callers (which have no profile) compatible with their explicit spacing.
+  const legacyStep = body.scanProfile == null ? body.gridStepM : undefined;
+  const gridStepM = scanProfile === "precision" ? 500 :
+    legacyStep == null ? 1000 : bounded(legacyStep, 100, 2000, "網格間距");
   const config: ScanConfig = {
     mode,
+    scanProfile,
     countryPacks: Array.isArray(body.countryPacks) ? body.countryPacks.map(String) : [],
     // 2026-08-20：從市中心單點擴大到含郊區，預設半徑 2km→8km（上限 10km）。
     radiusKm: bounded(body.radiusKm ?? 8, 0.5, 10, "城市半徑"),
-    // 2026-08-20 現場實測（台北，8 秒/點，四種等效時速各兩個方位角）：跳點
-    // 距離拉到 667m/889m（等效 300-400km/h）後，每分鐘收穫的不重複蘑菇數
-    // 明顯下滑（27.7、25.4 個/分鐘 vs 16.2、18.0），667m 以上開始出現漏收。
-    // 350m 落在有實測支持的高效區間內，仍比 222m（100km/h 等效）省點數。
-    gridStepM: bounded(body.gridStepM ?? 350, 100, 2000, "網格間距"),
+    // 全域預設 1km；精細模式固定 500m。兩種模式都仍受 native map-refresh
+    // 回報約束，並不以縮短 dwellS 強迫更快跳點。
+    gridStepM,
     dwellS: bounded(body.dwellS ?? 8, 3, 120, "每點等待"),
     hopDelayS: bounded(body.hopDelayS ?? 2, 0, 60, "跳點延遲"),
     // 2026-08-20：45→10，跨城市冷卻公式也拿掉距離加成（見下方 buildScanPlan
@@ -648,17 +656,33 @@ function optimize(regions: ScanRegion[], start?: { lat: number; lng: number } | 
   return ordered;
 }
 
-function grid(region: ScanRegion, stepM: number) {
+const GRID_PHASES: ReadonlyArray<readonly [number, number]> = [
+  [0, 0], [0.5, 0.5], [0.5, 0], [0, 0.5],
+];
+
+export function gridPhaseForCycle(cycle: number): readonly [number, number] {
+  return GRID_PHASES[Math.max(0, Math.floor(cycle)) % GRID_PHASES.length];
+}
+
+function grid(region: ScanRegion, stepM: number, phase: readonly [number, number]) {
   const latCenter = (region.latMin + region.latMax) / 2;
   const latStep = stepM / 111_320;
   const lngStep = stepM / (111_320 * Math.max(0.2, Math.abs(Math.cos(latCenter * Math.PI / 180))));
-  const rows = Math.max(1, Math.floor((region.latMax - region.latMin) / latStep) + 1);
-  const cols = Math.max(1, Math.floor((region.lngMax - region.lngMin) / lngStep) + 1);
+  const shiftedAxis = (min: number, max: number, step: number, offset: number) => {
+    // Start each loop half a cell over without crossing the requested region.
+    // When a very small region has no shifted point, retain its centre.
+    const values: number[] = [];
+    for (let value = min + step * offset; value <= max + 1e-10; value += step) {
+      values.push(Math.min(max, value));
+    }
+    return values.length ? values : [(min + max) / 2];
+  };
+  const lats = shiftedAxis(region.latMin, region.latMax, latStep, phase[0]);
+  const baseLngs = shiftedAxis(region.lngMin, region.lngMax, lngStep, phase[1]);
   const points: Array<{ lat: number; lng: number }> = [];
-  for (let row = 0; row < rows; row += 1) {
-    const lat = Math.min(region.latMax, region.latMin + row * latStep);
-    const lngs = Array.from({ length: cols }, (_, column) =>
-      Math.min(region.lngMax, region.lngMin + column * lngStep));
+  for (let row = 0; row < lats.length; row += 1) {
+    const lat = lats[row];
+    const lngs = [...baseLngs];
     if (row % 2) lngs.reverse();
     for (const lng of lngs) points.push({ lat, lng });
   }
@@ -668,6 +692,7 @@ function grid(region: ScanRegion, stepM: number) {
 export function buildScanPlan(
   config: ScanConfig,
   currentLocation?: { lat: number; lng: number } | null,
+  options: { cycle?: number } = {},
 ) {
   let regions: ScanRegion[] = [];
   if (config.mode === "custom" && config.custom) {
@@ -687,6 +712,8 @@ export function buildScanPlan(
   if (!regions.length) throw new Error("至少選擇一個國家城市包");
 
   const targets: ScanTarget[] = [];
+  const cycle = Math.max(0, Math.floor(options.cycle ?? 0));
+  const phase = config.scanProfile === "global" ? gridPhaseForCycle(cycle) : [0, 0] as const;
   let previous = currentLocation ?? null;
   regions.forEach((region, regionIndex) => {
     const regionCenter = center(region);
@@ -697,7 +724,7 @@ export function buildScanPlan(
     // 疊加的安全邊際沒有實測依據，改成直接用 cooldownS，跨城市時間可以真的
     // 固定在使用者設定的秒數（例如 10 秒），不會被遠距離城市拉長。
     const travelCooldown = previous ? config.cooldownS : 0;
-    grid(region, config.gridStepM).forEach((point, pointIndex) => {
+    grid(region, config.gridStepM, phase).forEach((point, pointIndex) => {
       targets.push({
         country: region.country,
         city: region.name,

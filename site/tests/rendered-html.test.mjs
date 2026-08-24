@@ -141,6 +141,9 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(plan, /name: "美國西部", region: "北美洲"/);
   assert.doesNotMatch(plan, /CITY_CHOICES|cityIds/);
   assert.match(plan, /buildScanPlan/);
+  assert.match(plan, /scanProfile: "global" \| "precision"/);
+  assert.match(plan, /gridPhaseForCycle/);
+  assert.match(plan, /\[0\.5, 0\.5\]/);
   assert.match(fleet, /releaseExpiredLeases/);
   assert.match(fleet, /const LEASE_MS = 12 \* 60_000/);
   assert.match(fleet, /lease_token/);
@@ -177,6 +180,9 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(schema, /scanRotationRuns/);
   assert.match(cloud, /CREATE TABLE IF NOT EXISTS scan_rotation_runs/);
   assert.match(rotation, /ensureDailyRotation/);
+  assert.match(rotation, /scanProfile: "global"/);
+  assert.match(fleet, /buildScanPlan\(config, null, \{ cycle: nextCycle \}\)/);
+  assert.match(fleet, /1km 偏移網格/);
   assert.match(rotation, /每日 07:30.*每日 19:30/s);
   assert.match(rotation, /SELECT \* FROM scan_rotation_runs WHERE schedule_date=\?/);
   assert.match(rotation, /30 \* 60_000/);
