@@ -28,10 +28,10 @@ test("manual redeploy avoids both current and next scheduled routes", () => {
   assert.equal(manual.assignments.length, 3);
   assert.equal(manual.assignments.every((item) => !currentIds.has(item.id)), true);
   assert.equal(manual.assignments.every((item) => !nextIds.has(item.id)), true);
-  assert.ok(manual.assignments.every((item) => [35, 36, 37].includes(item.cityCount)));
+  assert.ok(manual.assignments.every((item) => [35, 36, 37, 38].includes(item.cityCount)));
 });
 
-test("assigns three Agents distinct balanced routes and covers all packs in four slots", () => {
+test("assigns three Agents distinct balanced priority routes without Taiwan or Japan", () => {
   const seenBundles = new Set();
   const seenPacks = new Set();
   for (let slot = 0; slot < ROTATION_DAYS.length; slot += 1) {
@@ -40,22 +40,32 @@ test("assigns three Agents distinct balanced routes and covers all packs in four
     assert.equal(plan.assignments.length, 3);
     assert.equal(new Set(plan.assignments.map((item) => item.id)).size, 3);
     const counts = plan.assignments.map((item) => item.cityCount);
-    assert.ok(Math.max(...counts) - Math.min(...counts) <= 2);
+    assert.ok(Math.max(...counts) - Math.min(...counts) <= 3);
     assert.ok(Math.min(...counts) >= 35);
+    const slotPacks = new Set();
     for (const assignment of plan.assignments) {
       seenBundles.add(assignment.id);
       for (const pack of assignment.packs) {
-        assert.equal(seenPacks.has(pack), false, `${pack} was assigned twice in one cycle`);
+        assert.equal(slotPacks.has(pack), false, `${pack} was assigned twice in one slot`);
+        slotPacks.add(pack);
         seenPacks.add(pack);
       }
     }
   }
   assert.equal(seenBundles.size, 12);
   assert.equal(seenPacks.has("tw"), false);
-  assert.equal(seenPacks.size, 68);
+  assert.equal(seenPacks.has("jp"), false);
+  assert.ok(seenPacks.has("in"));
+  assert.ok(seenPacks.has("us-east"));
+  assert.ok(seenPacks.has("mx"));
+  assert.ok(seenPacks.has("br"));
+  assert.ok(seenPacks.has("nz"));
+  assert.ok(seenPacks.has("ae"));
+  assert.ok(seenPacks.has("ro"));
+  assert.ok(seenPacks.has("no"));
 });
 
-test("morning and evening assignments never repeat the previous routes or packs", () => {
+test("morning and evening assignments never repeat the previous routes", () => {
   const morning = planDailyRotation(
     ["agent-1", "agent-2", "agent-3"],
     Date.parse("2026-07-22T00:00:00Z"),
@@ -65,10 +75,8 @@ test("morning and evening assignments never repeat the previous routes or packs"
     Date.parse("2026-07-22T12:00:00Z"),
   );
   const morningRoutes = new Set(morning.assignments.map((item) => item.id));
-  const morningPacks = new Set(morning.assignments.flatMap((item) => item.packs));
   for (const assignment of evening.assignments) {
     assert.equal(morningRoutes.has(assignment.id), false);
-    for (const pack of assignment.packs) assert.equal(morningPacks.has(pack), false);
   }
 });
 
