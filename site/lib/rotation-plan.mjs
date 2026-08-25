@@ -3,30 +3,32 @@ export const ROTATION_SWITCH_MINUTES = [7 * 60 + 30, 19 * 60 + 30];
 export const ROTATION_SWITCH_MINUTE = ROTATION_SWITCH_MINUTES[0];
 export const ROTATION_EPOCH_DATE = "2026-07-22";
 
-// Four balanced slots cover every configured non-Taiwan country pack exactly
-// once. Each slot has three non-overlapping routes of 35–37 cities so the
-// three active Agents receive nearly identical workloads at every 07:30 /
-// 19:30 switch.
+// Prioritise regions where low-participant mushrooms are more likely while
+// completely excluding Taiwan and Japan.  Each slot has three non-overlapping
+// routes of 35–38 cities, giving the three active Agents comparable workloads.
+// The selected regions intentionally recur across the four slots: India,
+// North/Central/South America, Oceania, Middle East, Eastern Europe and Nordic
+// Europe receive more coverage than the de-prioritised regions.
 export const ROTATION_DAYS = [
   [
-    { id: "global-01", label: "全球路線 01", packs: ["jp", "ec", "be", "tn", "qa"], cityCount: 37 },
-    { id: "global-02", label: "全球路線 02", packs: ["br", "pe", "pl", "hr", "il", "sg"], cityCount: 36 },
-    { id: "global-03", label: "全球路線 03", packs: ["in", "ph", "ro", "hu", "is"], cityCount: 35 },
+    { id: "priority-01", label: "優先路線 01", packs: ["in", "nz", "ae", "no", "ro"], cityCount: 36 },
+    { id: "priority-02", label: "優先路線 02", packs: ["us-east", "mx", "br", "qa"], cityCount: 37 },
+    { id: "priority-03", label: "優先路線 03", packs: ["us-central", "ca", "ec", "au"], cityCount: 36 },
   ],
   [
-    { id: "global-04", label: "全球路線 04", packs: ["us-central", "th", "se", "pa", "jo"], cityCount: 35 },
-    { id: "global-05", label: "全球路線 05", packs: ["us-east", "vn", "ve", "pt", "ni"], cityCount: 35 },
-    { id: "global-06", label: "全球路線 06", packs: ["us-west", "it", "no", "gr", "ie", "bz"], cityCount: 36 },
+    { id: "priority-04", label: "優先路線 04", packs: ["in", "se", "fi", "sa", "cl"], cityCount: 37 },
+    { id: "priority-05", label: "優先路線 05", packs: ["us-west", "gt", "hn", "pe", "ve", "bz"], cityCount: 36 },
+    { id: "priority-06", label: "優先路線 06", packs: ["mx", "cr", "pa", "br", "uy"], cityCount: 36 },
   ],
   [
-    { id: "global-07", label: "全球路線 07", packs: ["ar", "co", "eg", "bo", "ae", "rs"], cityCount: 37 },
-    { id: "global-08", label: "全球路線 08", packs: ["au", "id", "es", "ch", "bg", "si"], cityCount: 37 },
-    { id: "global-09", label: "全球路線 09", packs: ["fr", "kr", "fi", "cr", "cz", "sk"], cityCount: 37 },
+    { id: "priority-07", label: "優先路線 07", packs: ["nz", "au", "il", "jo", "dk", "bg"], cityCount: 35 },
+    { id: "priority-08", label: "優先路線 08", packs: ["us-east", "us-central", "cl", "qa"], cityCount: 35 },
+    { id: "priority-09", label: "優先路線 09", packs: ["in", "us-west", "co", "bo"], cityCount: 37 },
   ],
   [
-    { id: "global-10", label: "全球路線 10", packs: ["gb", "my", "ma", "dk", "gt", "sv"], cityCount: 37 },
-    { id: "global-11", label: "全球路線 11", packs: ["mx", "nz", "nl", "dz", "hn", "uy"], cityCount: 37 },
-    { id: "global-12", label: "全球路線 12", packs: ["ca", "cl", "de", "at", "sa", "py"], cityCount: 36 },
+    { id: "priority-10", label: "優先路線 10", packs: ["ca", "mx", "br", "se"], cityCount: 36 },
+    { id: "priority-11", label: "優先路線 11", packs: ["nz", "au", "no", "fi", "is", "qa"], cityCount: 37 },
+    { id: "priority-12", label: "優先路線 12", packs: ["us-central", "ec", "pe", "ro", "rs"], cityCount: 36 },
   ],
 ];
 
