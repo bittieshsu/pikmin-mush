@@ -19,7 +19,7 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-const MAP_SCRIPT_HASH = "'sha256-4For8BE4QE0+ncbB+R4uk8ULWS0ZmTGdwjqFOu0q6TQ='";
+const MAP_SCRIPT_HASH = "'sha256-kWVhdZFhrqH4VacH5TSlTxe5es22e9lc36rTGVercdo='";
 const EVENT_SPOTS_SCRIPT_HASH = "'sha256-uJ12ohxrD5i47AfdBTyykagBqLSDsVXCxqZ+q8HPrYo='";
 
 function withSecurityHeaders(response: Response, strictMap = false) {
