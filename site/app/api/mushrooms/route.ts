@@ -86,7 +86,7 @@ export async function GET(request: Request) {
   const countWhere = where.filter((_, index) => !cursor || index !== where.length - 1);
   const countBindings = cursor ? bindings.slice(0, -3) : bindings;
 
-  const [mushrooms, countResult, agentsResult, scanner] = await Promise.all([
+  const [mushrooms, countResult, agentsResult, targetsResult, scanner] = await Promise.all([
     db.prepare(select).bind(...mushroomBindings).all(),
     paginated
       ? db.prepare(`SELECT COUNT(*) AS count FROM mushrooms WHERE ${countWhere.join(" AND ")}`)
@@ -94,6 +94,10 @@ export async function GET(request: Request) {
       : Promise.resolve(null),
     db.prepare("SELECT * FROM scan_agents ORDER BY enabled DESC, last_seen DESC")
       .all<ScanAgentRow>(),
+    db.prepare(`SELECT id, lat, lng, country, city FROM scan_targets WHERE id IN (
+      SELECT current_target_id FROM scan_agents
+      WHERE enabled=1 AND paused=0 AND current_target_id IS NOT NULL
+    )`).all<{ id: number; lat: number; lng: number; country: string; city: string }>(),
     db.prepare("SELECT status_json, updated_at FROM scanner_status WHERE id = 1").first(),
   ]);
   let status: Record<string, unknown> = {};
@@ -116,6 +120,26 @@ export async function GET(request: Request) {
     source: String(status.source ?? "").slice(0, 48),
   };
   const agents = agentsResult.results.map((agent) => publicAgent(agent, now));
+  // Public map markers expose the assigned scan target, never the device's
+  // reported location or any network/device metadata.
+  const targetsById = new Map(targetsResult.results.map((target) => [
+    Number(target.id), target,
+  ]));
+  const liveAgents = agents.flatMap((agent) => {
+    const target = targetsById.get(Number(agent.current_target_id));
+    const lat = Number(target?.lat);
+    const lng = Number(target?.lng);
+    if (!agent.online || agent.paused || !target ||
+      !Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+    return [{
+      id: String(agent.id).slice(0, 64),
+      name: String(agent.name).slice(0, 96),
+      current_location: [lat, lng],
+      country: String(target.country ?? "").slice(0, 96),
+      city: String(target.city ?? "").slice(0, 96),
+      last_seen: Number(agent.last_seen),
+    }];
+  });
   const agentNames = new Map(agentsResult.results.map((agent) => [
     String(agent.id), String(agent.display_name),
   ]));
@@ -153,6 +177,7 @@ export async function GET(request: Request) {
       online_count: agents.filter((agent) => agent.online).length,
       total_count: agents.length,
     },
+    live_agents: liveAgents,
     retention: {
       policy_days: 7,
       level_2_3_inactive_after_days: 2,
