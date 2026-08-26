@@ -16,9 +16,14 @@ export const mushrooms = sqliteTable("mushrooms", {
   challengerCapacity: integer("challenger_capacity").notNull().default(0),
   totalPower: real("total_power").notNull().default(0),
   startMs: integer("start_ms").notNull().default(0),
+  mushroomStatus: text("mushroom_status").notNull().default("active"),
+  invalidatedAt: integer("invalidated_at").notNull().default(0),
 }, (table) => [
   index("mushrooms_finish_ms_idx").on(table.finishMs),
   index("mushrooms_last_seen_id_idx").on(table.lastSeen, table.id),
+  index("mushrooms_status_level_first_seen_idx").on(
+    table.mushroomStatus, table.level, table.firstSeen,
+  ),
 ]);
 
 export const maintenanceState = sqliteTable("maintenance_state", {

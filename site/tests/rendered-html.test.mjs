@@ -253,6 +253,9 @@ test("bounds mushroom retention without making concurrent uploads purge repeated
   assert.match(schema, /maintenanceState/);
   assert.match(schema, /mushrooms_last_seen_id_idx/);
   assert.match(cloud, /MUSHROOM_RETENTION_SECONDS = 7 \* 24 \* 60 \* 60/);
+  assert.match(cloud, /LEVEL_TWO_THREE_INVALID_AFTER_SECONDS = 2 \* 24 \* 60 \* 60/);
+  assert.match(cloud, /SET mushroom_status='invalid', invalidated_at=\?/);
+  assert.match(cloud, /level IN \(2, 3\) AND first_seen < \?/);
   assert.match(cloud, /MUSHROOM_RETENTION_INTERVAL_SECONDS = 5 \* 60/);
   assert.match(cloud, /UPDATE maintenance_state[\s\S]*last_run_at<\?/);
   assert.match(cloud, /DELETE FROM mushrooms WHERE id IN/);
@@ -260,8 +263,17 @@ test("bounds mushroom retention without making concurrent uploads purge repeated
   assert.match(upload, /await runMushroomRetention\(\)/);
   assert.match(publicApi, /const retention = await runMushroomRetention\(\)/);
   assert.match(publicApi, /policy_days: 7/);
+  assert.match(publicApi, /level_2_3_inactive_after_days: 2/);
+  assert.match(publicApi, /mushroom_status='active'/);
   assert.match(migration, /CREATE INDEX `mushrooms_last_seen_id_idx`/);
   assert.match(migration, /CREATE TABLE `maintenance_state`/);
+});
+
+test("defaults the public map to mushrooms with fewer than five participants", async () => {
+  const map = await readFile(new URL("public/map.html", root), "utf8");
+  assert.match(map, /id="under-five-only" checked> 僅列出未滿 5 人/);
+  assert.match(map, /function isUnderFive\(m\)/);
+  assert.match(map, /!underFiveOnly\|\|isUnderFive\(m\)/);
 });
 
 test("shows the Agent that discovered a mushroom without guessing legacy sources", async () => {

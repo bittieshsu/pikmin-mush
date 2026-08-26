@@ -55,7 +55,11 @@ export async function GET(request: Request) {
   const limit = Math.max(1, Math.min(MAX_PAGE_SIZE,
     Number.isFinite(parsedLimit) ? parsedLimit : 500));
 
-  const where = ["level >= ?", "(finish_ms = 0 OR finish_ms > ?)"];
+  const where = [
+    "level >= ?",
+    "mushroom_status='active'",
+    "(finish_ms = 0 OR finish_ms > ?)",
+  ];
   const bindings: unknown[] = [MIN_MUSHROOM_LEVEL, now];
   if (bbox) {
     where.push("lat >= ?", "lat <= ?");
@@ -151,6 +155,7 @@ export async function GET(request: Request) {
     },
     retention: {
       policy_days: 7,
+      level_2_3_inactive_after_days: 2,
       last_run_at: retention.lastRunAt,
       last_deleted: retention.lastDeleted,
       pending: retention.pending,

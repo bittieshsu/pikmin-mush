@@ -18,6 +18,7 @@ export type MushroomRow = {
 };
 
 const MUSHROOM_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const LEVEL_TWO_THREE_INVALID_AFTER_SECONDS = 2 * 24 * 60 * 60;
 const MUSHROOM_RETENTION_INTERVAL_SECONDS = 5 * 60;
 const MUSHROOM_RETENTION_BATCH_SIZE = 1_000;
 
@@ -68,6 +69,8 @@ async function patchColumns(db: RuntimeEnv["DB"]) {
     { sql: "ALTER TABLE mushrooms ADD COLUMN giant_recheck_status TEXT NOT NULL DEFAULT ''", verify: "SELECT giant_recheck_status FROM mushrooms LIMIT 1" },
     { sql: "ALTER TABLE mushrooms ADD COLUMN giant_rechecked_at INTEGER NOT NULL DEFAULT 0", verify: "SELECT giant_rechecked_at FROM mushrooms LIMIT 1" },
     { sql: "ALTER TABLE mushrooms ADD COLUMN discovered_by_agent_id TEXT NOT NULL DEFAULT ''", verify: "SELECT discovered_by_agent_id FROM mushrooms LIMIT 1" },
+    { sql: "ALTER TABLE mushrooms ADD COLUMN mushroom_status TEXT NOT NULL DEFAULT 'active'", verify: "SELECT mushroom_status FROM mushrooms LIMIT 1" },
+    { sql: "ALTER TABLE mushrooms ADD COLUMN invalidated_at INTEGER NOT NULL DEFAULT 0", verify: "SELECT invalidated_at FROM mushrooms LIMIT 1" },
   ];
   for (const addition of additions) {
     try {
@@ -80,6 +83,8 @@ async function patchColumns(db: RuntimeEnv["DB"]) {
       }
     }
   }
+  await db.prepare(`CREATE INDEX IF NOT EXISTS mushrooms_status_level_first_seen_idx
+    ON mushrooms (mushroom_status, level, first_seen)`).run();
   columnsPatched = true;
 }
 
@@ -115,7 +120,8 @@ async function probeSchema(db: RuntimeEnv["DB"]) {
           verification_batch || verification_mushroom_id || verification_kind ||
           verification_result
           FROM scan_targets LIMIT 1) AS target_shape,
-        (SELECT id || giant_recheck_status || giant_rechecked_at FROM mushrooms LIMIT 1) AS mushroom_shape,
+        (SELECT id || giant_recheck_status || giant_rechecked_at || mushroom_status || invalidated_at
+          FROM mushrooms LIMIT 1) AS mushroom_shape,
         (SELECT id FROM event_spots LIMIT 1) AS event_spots_shape,
         (SELECT id FROM scan_jobs LIMIT 1) AS job_shape,
         (SELECT id FROM scan_logs LIMIT 1) AS log_shape,
@@ -152,7 +158,9 @@ async function initializeSchema() {
       total_power REAL NOT NULL DEFAULT 0,
       start_ms INTEGER NOT NULL DEFAULT 0,
       giant_recheck_status TEXT NOT NULL DEFAULT '',
-      giant_rechecked_at INTEGER NOT NULL DEFAULT 0
+      giant_rechecked_at INTEGER NOT NULL DEFAULT 0,
+      mushroom_status TEXT NOT NULL DEFAULT 'active',
+      invalidated_at INTEGER NOT NULL DEFAULT 0
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS mushrooms_finish_ms_idx
       ON mushrooms (finish_ms)`),
@@ -584,6 +592,16 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
           THEN 0
         ELSE mushrooms.giant_rechecked_at
       END,
+      mushroom_status=CASE
+        WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
+          THEN 'active'
+        ELSE mushrooms.mushroom_status
+      END,
+      invalidated_at=CASE
+        WHEN excluded.start_ms > 0 AND mushrooms.start_ms <> excluded.start_ms
+          THEN 0
+        ELSE mushrooms.invalidated_at
+      END,
       start_ms=excluded.start_ms`;
   for (let offset = 0; offset < usefulRows.length; offset += 50) {
     const statements = usefulRows.slice(offset, offset + 50).map((row) =>
@@ -613,6 +631,7 @@ export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
   const cutoff = now - MUSHROOM_RETENTION_SECONDS;
+  const invalidCutoff = now - LEVEL_TWO_THREE_INVALID_AFTER_SECONDS;
   const lockBefore = now - MUSHROOM_RETENTION_INTERVAL_SECONDS;
 
   await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
@@ -626,6 +645,10 @@ export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
       FROM maintenance_state WHERE name='mushroom-retention'`).first());
   }
 
+  await db.prepare(`UPDATE mushrooms
+      SET mushroom_status='invalid', invalidated_at=?
+      WHERE mushroom_status='active' AND level IN (2, 3) AND first_seen < ?`)
+    .bind(now, invalidCutoff).run();
   const candidates = await db.prepare(`SELECT COUNT(*) AS count FROM mushrooms
     WHERE last_seen < ?`).bind(cutoff).first<{ count: number }>();
   const eligible = Number(candidates?.count ?? 0);
