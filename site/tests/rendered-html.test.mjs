@@ -83,6 +83,8 @@ test("hardens uploads, public telemetry, controller credentials, and browser pol
   assert.match(eventSpotsApi, /\["active", "all", "ended"\]\.includes\(requestedStatus\)/);
   assert.match(eventSpots, /jp-nintendo-tokyo/);
   assert.match(eventSpots, /jp-miyajima-terrace/);
+  assert.match(eventSpots, /de-gamescom-2026-spot-1/);
+  assert.match(eventSpots, /august26-gamescom/);
   assert.match(eventSpotsPage, /活動金盆地圖/);
   assert.match(eventSpotsPage, /api\/event-spots/);
   assert.match(eventSpotsPage, /data-copy=/);

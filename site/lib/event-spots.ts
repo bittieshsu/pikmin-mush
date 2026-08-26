@@ -23,6 +23,7 @@ const seconds = (value: string) => Math.floor(Date.parse(value) / 1000);
 const officialHelp = "https://niantic.helpshift.com/hc/en/23-pikmin-bloom/faq/3623-special-spot/?app_id=niantic_app_20191018003855906-90e74c8b4bfbc25&faq_id=niantic_faq_20210714025851089-b1376ee217dca25&is_preview=false&is_sdkx=false&language=en&platform_id=niantic_platform_20180726175230075-13b9ec875546270&platform_type=web";
 const verified = seconds("2026-08-22T00:00:00Z");
 const verified2 = seconds("2026-08-21T00:00:00Z");
+const verified3 = seconds("2026-08-26T00:00:00Z");
 
 // Coordinates identify the venue or published Special Spot area.  They are
 // deliberately curated rather than inferred from scanner data; the game UI is
@@ -543,6 +544,35 @@ export const EVENT_SPOT_SEED: EventSpotSeed[] = [
     cooldownNote: "每個 Special Spot 每 7 天最多 1 次；2000 步挑戰全活動限 1 次（不分店重複）", eligibilityNote: "需在 Special Spot 附近，並以遊戲顯示為準；活動期間店內同步舉辦 Pikmin 4 體驗",
     coordinateNote: "IKEA 高雄店場館座標；請以遊戲地圖確認", verificationStatus: "official",
     sourceTitle: "IKEA x Pikmin Bloom 台灣限時活動官方公告", sourceUrl: "https://pikminbloom.com/news/august26-ikeatw", lastVerifiedAt: verified2,
+  },
+
+  // ---- 德國・科隆 gamescom 2026（限時活動：8/26～8/30 CEST） ----
+  {
+    id: "de-gamescom-2026-spot-1", country: "德國", city: "科隆", name: "gamescom 2026 — Special Spot 1",
+    lat: 50.9424259, lng: 6.9777817, spotKind: "limited", rewardKind: "gold_seedling",
+    rewardSummary: "金色花苗（官方公告列出紅色／黃色／岩石禮物貼紙〈金色〉飾品皮克敏）",
+    startAt: seconds("2026-08-26T07:00:00Z"), endAt: seconds("2026-08-30T17:00:00Z"),
+    cooldownNote: "每位玩家每天每個 Special Spot 最多 1 棵金色花苗", eligibilityNote: "限 gamescom 2026 科隆展覽館會場內；以遊戲顯示為準",
+    coordinateNote: "座標由使用者提供；官方公告確認會場內有 3 個 Special Spot，但未公布個別座標對應，請以遊戲地圖確認", verificationStatus: "community",
+    sourceTitle: "gamescom 2026 Pikmin Bloom 官方活動公告", sourceUrl: "https://pikminbloom.com/zh/news/august26-gamescom", lastVerifiedAt: verified3,
+  },
+  {
+    id: "de-gamescom-2026-spot-2", country: "德國", city: "科隆", name: "gamescom 2026 — Special Spot 2",
+    lat: 50.9463097, lng: 6.9815766, spotKind: "limited", rewardKind: "gold_seedling",
+    rewardSummary: "金色花苗（官方公告列出紅色／黃色／岩石禮物貼紙〈金色〉飾品皮克敏）",
+    startAt: seconds("2026-08-26T07:00:00Z"), endAt: seconds("2026-08-30T17:00:00Z"),
+    cooldownNote: "每位玩家每天每個 Special Spot 最多 1 棵金色花苗", eligibilityNote: "限 gamescom 2026 科隆展覽館會場內；以遊戲顯示為準",
+    coordinateNote: "座標由使用者提供；官方公告確認會場內有 3 個 Special Spot，但未公布個別座標對應，請以遊戲地圖確認", verificationStatus: "community",
+    sourceTitle: "gamescom 2026 Pikmin Bloom 官方活動公告", sourceUrl: "https://pikminbloom.com/zh/news/august26-gamescom", lastVerifiedAt: verified3,
+  },
+  {
+    id: "de-gamescom-2026-spot-3", country: "德國", city: "科隆", name: "gamescom 2026 — Special Spot 3",
+    lat: 50.9479192, lng: 6.9834634, spotKind: "limited", rewardKind: "gold_seedling",
+    rewardSummary: "金色花苗（官方公告列出紅色／黃色／岩石禮物貼紙〈金色〉飾品皮克敏）",
+    startAt: seconds("2026-08-26T07:00:00Z"), endAt: seconds("2026-08-30T17:00:00Z"),
+    cooldownNote: "每位玩家每天每個 Special Spot 最多 1 棵金色花苗", eligibilityNote: "限 gamescom 2026 科隆展覽館會場內；以遊戲顯示為準",
+    coordinateNote: "座標由使用者提供；官方公告確認會場內有 3 個 Special Spot，但未公布個別座標對應，請以遊戲地圖確認", verificationStatus: "community",
+    sourceTitle: "gamescom 2026 Pikmin Bloom 官方活動公告", sourceUrl: "https://pikminbloom.com/zh/news/august26-gamescom", lastVerifiedAt: verified3,
   },
 
   // ---- 香港（永久 Special Spot） ----
