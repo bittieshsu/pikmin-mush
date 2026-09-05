@@ -3,6 +3,7 @@ import { activeJob, appendScanLog, parseJobConfig, parseJobPlan, type ScanJobRow
 import { ensureDailyRotation } from "./rotation";
 import { materializeTargets } from "./targets";
 import { buildScanPlan, normalizeScanConfig } from "./scan-plans";
+import { classifyScanOutcome, SCAN_OUTCOME_LABELS } from "./scan-outcomes.mjs";
 import {
   HEARTBEAT_SAMPLE_MS, agentHealth, recordAgentEvent, versionCompatibility,
 } from "./metrics";
@@ -527,6 +528,7 @@ export async function completeTask(
     rows: number;
     bytes: number;
     message: string;
+    outcome?: string;
   },
 ) {
   const db = runtime().DB;
@@ -543,8 +545,9 @@ export async function completeTask(
   const status = input.ok ? "completed" : target.attempts >= 3 ? "failed" : "queued";
   const completedDelta = target.verification_kind ? 0 :
     status === "completed" || status === "failed" ? 1 : 0;
+  const outcome = classifyScanOutcome(input);
   const message = input.ok
-    ? `${agent.display_name} 完成 ${target.city}，新增 ${input.rows} 行`
+    ? `${agent.display_name} 完成 ${target.city}，新增 ${input.rows} 行（${SCAN_OUTCOME_LABELS[outcome]}）`
     : status === "failed"
       ? `${agent.display_name} 執行 ${target.city} 失敗，已達重試上限`
       : `${agent.display_name} 執行 ${target.city} 失敗，重新排隊`;
@@ -581,7 +584,7 @@ export async function completeTask(
     agentId: agent.id,
     type: input.ok ? "target_completed" : "target_failed",
     at: now, jobId: job.id, targetId: target.id, rows: input.rows,
-    bytes: input.bytes, durationMs, detail: input.message,
+    bytes: input.bytes, durationMs, detail: JSON.stringify({outcome, message:input.message.slice(0,160)}),
   });
   if (input.ok && input.rows === 0) {
     await recordAgentEvent({
