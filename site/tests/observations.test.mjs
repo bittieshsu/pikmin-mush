@@ -19,6 +19,7 @@ test("location, challenge and observation identities do not collapse", () => {
 test("history SQL preserves first observation, separates respawns and ignores retries", () => {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../drizzle/0015_slimy_klaw.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../drizzle/0016_superb_random.sql", import.meta.url), "utf8"));
   const adapter={prepare(sql){return {bind(...values){return ()=>sqlite.prepare(sql).run(...values);}};}};
   const row={id:"p",lat:1,lng:2,start_ms:1000,level:3,type:2,challenger_count:1,challenger_capacity:35,total_power:10,finish_ms:0};
   for(const at of [100,100,200])for(const stmt of observationStatements(adapter,row,"a",at))stmt();

@@ -48,6 +48,7 @@ export const mushroomChallenges = sqliteTable("mushroom_challenges", {
 export const mushroomObservations = sqliteTable("mushroom_observations", {
   key: text("key").primaryKey(), challengeKey: text("challenge_key").notNull(),
   agentId: text("agent_id").notNull(), receivedAt: integer("received_at").notNull(),
+  targetId: integer("target_id"),
   level: integer("level").notNull(), type: integer("type").notNull(),
   challengerCount: integer("challenger_count").notNull(),
   challengerCapacity: integer("challenger_capacity").notNull(),

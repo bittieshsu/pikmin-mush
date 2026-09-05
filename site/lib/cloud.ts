@@ -598,7 +598,7 @@ export function parseTsv(text: string): MushroomRow[] {
   return rows;
 }
 
-export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId = "") {
+export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId = "", targetId: number | null = null) {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
   const usefulRows = rows.filter((row) => isUsefulMushroomLevel(row.level));
@@ -661,7 +661,7 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
         row.id, row.lat, row.lng, row.level, row.type, row.cluster,
         row.cooldown, row.finish_ms, now, discoveredByAgentId, now, row.challenger_count,
         row.challenger_capacity, row.total_power, row.start_ms,
-      ])), ...observationStatements(db, chunk, discoveredByAgentId, now));
+      ])), ...observationStatements(db, chunk, discoveredByAgentId, now, targetId));
     if (statements.length >= 48) { await db.batch(statements); statements = []; }
   }
   if (statements.length) await db.batch(statements);

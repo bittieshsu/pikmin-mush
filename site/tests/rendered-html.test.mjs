@@ -333,7 +333,7 @@ test("shows the Agent that discovered a mushroom without guessing legacy sources
 
   assert.match(schema, /discoveredByAgentId/);
   assert.match(cloud, /discovered_by_agent_id/);
-  assert.match(upload, /upsertMushrooms\(rows, agent\.id\)/);
+  assert.match(upload, /upsertMushrooms\(rows, agent\.id, agent\.current_target_id\)/);
   assert.match(publicApi, /discovered_by:/);
   assert.match(map, /function discoveredBy\(m\)/);
   assert.match(map, /來源未記錄/);
