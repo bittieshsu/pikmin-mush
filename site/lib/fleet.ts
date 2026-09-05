@@ -506,9 +506,9 @@ async function finalizeGiantRecheck(
         Number(mushroom.challenger_count) < 5;
       result = valid ? "valid" : "invalid";
       await db.prepare(`UPDATE mushrooms SET giant_recheck_status=?,
-          giant_rechecked_at=?, first_seen=CASE WHEN ?='valid' THEN ? ELSE first_seen END
+          giant_rechecked_at=?
         WHERE id=?`)
-        .bind(result, now, result, Math.floor(now / 1000), target.verification_mushroom_id)
+        .bind(result, now, target.verification_mushroom_id)
         .run();
     }
   }

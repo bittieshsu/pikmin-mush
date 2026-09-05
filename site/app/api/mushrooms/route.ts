@@ -232,6 +232,9 @@ export async function GET(request: Request) {
       ...mushroom,
       ...resolveScanLocation(Number(mushroom.lat), Number(mushroom.lng)),
       discovered_at: Math.max(firstSeen, challengeStarted),
+      last_observed_at: Number(mushroom.last_seen ?? 0),
+      last_verified_at: Math.floor(Number(mushroom.giant_rechecked_at ?? 0) / 1000),
+      discovery_history_note: "legacy discovery timestamps may include earlier recheck refreshes",
       discovered_by: agentNames.get(String(mushroom.discovered_by_agent_id ?? "")) ?? "",
     };
   });

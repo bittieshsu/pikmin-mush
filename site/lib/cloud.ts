@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { isUsefulMushroomLevel } from "./mushroom-policy.mjs";
 import { EVENT_SPOT_SEED } from "./event-spots";
+import { observationStatements } from "./observations.mjs";
 
 export type MushroomRow = {
   id: string;
@@ -649,15 +650,21 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
         ELSE mushrooms.invalidated_at
       END,
       start_ms=excluded.start_ms`;
-  for (let offset = 0; offset < usefulRows.length; offset += 50) {
-    const statements = usefulRows.slice(offset, offset + 50).map((row) =>
-      db.prepare(sql).bind(
+  // Six rows per statement keep the 15-column snapshot below 100 bindings.
+  // Flush 48 statements per batch: history must not quadruple network calls.
+  let statements: D1PreparedStatement[] = [];
+  for (let offset = 0; offset < usefulRows.length; offset += 6) {
+    const chunk = usefulRows.slice(offset, offset + 6);
+    const bulkSql = sql.replace(/VALUES \([^)]*\)/,
+      `VALUES ${chunk.map(() => `(${Array(15).fill("?").join(",")})`).join(",")}`);
+    statements.push(db.prepare(bulkSql).bind(...chunk.flatMap(row => [
         row.id, row.lat, row.lng, row.level, row.type, row.cluster,
         row.cooldown, row.finish_ms, now, discoveredByAgentId, now, row.challenger_count,
         row.challenger_capacity, row.total_power, row.start_ms,
-      ));
-    if (statements.length) await db.batch(statements);
+      ])), ...observationStatements(db, chunk, discoveredByAgentId, now));
+    if (statements.length >= 48) { await db.batch(statements); statements = []; }
   }
+  if (statements.length) await db.batch(statements);
 }
 
 function retentionStatus(row: Record<string, unknown> | null | undefined): MushroomRetentionStatus {
@@ -703,6 +710,11 @@ export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
       ORDER BY last_seen ASC, id ASC LIMIT ?
     )`).bind(cutoff, MUSHROOM_RETENTION_BATCH_SIZE).run();
   const lastDeleted = Number(deleted.meta.changes ?? 0);
+  // Bounded history retention shares the existing five-minute maintenance lease.
+  await db.prepare(`DELETE FROM mushroom_observations WHERE key IN (
+      SELECT key FROM mushroom_observations WHERE received_at < ?
+      ORDER BY received_at LIMIT 5000
+    )`).bind(cutoff).run();
   const pending = Math.max(0, eligible - lastDeleted);
   await db.prepare(`UPDATE maintenance_state
       SET last_deleted=?, pending=?

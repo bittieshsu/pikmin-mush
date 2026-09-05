@@ -106,6 +106,13 @@
       "when": 1788111000000,
       "tag": "0014_public_usage_events",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788572365914,
+      "tag": "0015_slimy_klaw",
+      "breakpoints": true
     }
   ]
 }
