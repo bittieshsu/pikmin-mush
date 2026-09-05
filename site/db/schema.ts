@@ -33,6 +33,28 @@ export const maintenanceState = sqliteTable("maintenance_state", {
   pending: integer("pending").notNull().default(0),
 });
 
+// Additive history: legacy rows are not fabricated into past observations.
+export const mushroomLocations = sqliteTable("mushroom_locations", {
+  id: text("id").primaryKey(), lat: real("lat").notNull(), lng: real("lng").notNull(),
+  firstRecordedAt: integer("first_recorded_at").notNull(),
+  lastRecordedAt: integer("last_recorded_at").notNull(),
+});
+export const mushroomChallenges = sqliteTable("mushroom_challenges", {
+  key: text("key").primaryKey(), locationId: text("location_id").notNull(),
+  startMs: integer("start_ms").notNull(), identityConfidence: text("identity_confidence").notNull(),
+  firstRecordedAt: integer("first_recorded_at").notNull(),
+  lastObservedAt: integer("last_observed_at").notNull(),
+}, (t) => [index("mushroom_challenges_location_idx").on(t.locationId, t.lastObservedAt)]);
+export const mushroomObservations = sqliteTable("mushroom_observations", {
+  key: text("key").primaryKey(), challengeKey: text("challenge_key").notNull(),
+  agentId: text("agent_id").notNull(), receivedAt: integer("received_at").notNull(),
+  level: integer("level").notNull(), type: integer("type").notNull(),
+  challengerCount: integer("challenger_count").notNull(),
+  challengerCapacity: integer("challenger_capacity").notNull(),
+  totalPower: real("total_power").notNull(), finishMs: integer("finish_ms").notNull(),
+}, (t) => [index("mushroom_observations_received_idx").on(t.receivedAt),
+  index("mushroom_observations_challenge_idx").on(t.challengeKey, t.receivedAt)]);
+
 export const copyAuditEvents = sqliteTable("copy_audit_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   at: integer("at").notNull(),
