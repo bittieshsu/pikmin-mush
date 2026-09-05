@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { Script } from "node:vm";
 import {
   isUsefulMushroomLevel, MIN_MUSHROOM_LEVEL,
 } from "../lib/mushroom-policy.mjs";
@@ -96,6 +97,9 @@ test("hardens uploads, public telemetry, controller credentials, and browser pol
     assert.ok(inlineScript, `${name} inline script must remain detectable for CSP hashing`);
     const expected = `sha256-${createHash("sha256")
       .update(inlineScript.replace(/\r\n/g, "\n")).digest("base64")}`;
+    assert.doesNotThrow(() => new Script(inlineScript));
+    assert.ok(html.includes('http-equiv="Content-Security-Policy"'));
+    assert.ok(html.includes(expected), `${name} static clean URL needs its own CSP fallback`);
     assert.match(worker, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(headers, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }

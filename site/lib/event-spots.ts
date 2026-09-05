@@ -18,7 +18,9 @@ type SpotInput = Omit<EventSpotSeed, "spotKind" | "startAt" | "endAt" | "verific
 const make = (spotKind: "permanent" | "limited", spot: SpotInput): EventSpotSeed => ({
   ...spot, spotKind, startAt: spot.startAt ?? 0, endAt: spot.endAt ?? 0,
   eligibilityNote: spot.eligibilityNote ?? "需在 Special Spot 附近，並以遊戲顯示為準",
-  coordinateNote: spot.coordinateNote ?? "來源頁列示的座標；請以遊戲地圖確認",
+  coordinateNote: spot.coordinateNote ?? (spot.sourceUrl === ""
+    ? "使用者提供座標，尚未實地複核；請以遊戲地圖確認"
+    : "來源頁列示的座標；請以遊戲地圖確認"),
   verificationStatus: spot.verificationStatus ?? "community",
   sourceTitle: spot.sourceTitle ?? sourceTitle,
   sourceUrl: spot.sourceUrl ?? sourceUrl,

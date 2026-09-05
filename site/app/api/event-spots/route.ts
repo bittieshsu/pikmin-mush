@@ -1,4 +1,4 @@
-import { ensureSchema, noStoreJson, runtime } from "../../../lib/cloud";
+import { ensureSchema, ensureEventSpotCatalogue, noStoreJson, runtime } from "../../../lib/cloud";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ type EventSpotRow = {
 
 export async function GET(request: Request) {
   await ensureSchema();
+  await ensureEventSpotCatalogue();
   const url = new URL(request.url);
   const country = String(url.searchParams.get("country") ?? "").trim();
   const requestedStatus = String(url.searchParams.get("status") ?? "active");

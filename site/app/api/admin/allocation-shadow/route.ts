@@ -1,10 +1,10 @@
-import { adminAuthorized, ensureSchema, noStoreJson, runtime } from "../../../../lib/cloud";
+import { adminAuthorized, controllerAuthorized, ensureSchema, noStoreJson, runtime } from "../../../../lib/cloud";
 import { planDailyRotation } from "../../../../lib/rotation-plan.mjs";
 import { COUNTRY_PACK_CATALOG } from "../../../../lib/scan-plans";
 import { scoreRegions } from "../../../../lib/allocation-shadow.mjs";
 
 export async function GET(request: Request) {
-  if (!adminAuthorized(request)) return noStoreJson({error:"forbidden"},403);
+  if (!adminAuthorized(request) && !controllerAuthorized(request)) return noStoreJson({error:"forbidden"},403);
   await ensureSchema();
   const db=runtime().DB, now=Date.now(), since=now-7*86400000;
   const [effort,opportunities,coverage,agents]=await Promise.all([
