@@ -4,6 +4,7 @@ import {
 import { publicAgent, type ScanAgentRow } from "../../../lib/fleet";
 import { MIN_MUSHROOM_LEVEL } from "../../../lib/mushroom-policy.mjs";
 import { COUNTRY_PACK_CATALOG } from "../../../lib/scan-plans";
+import { QUERY_CONTRACT_VERSION, DISCOVERY_SQL, UNDER_FIVE_SQL, discoveryWindow } from "../../../lib/query-contract.mjs";
 
 const MAX_PAGE_SIZE = 1_000;
 const EVENT_TYPE_IDS = [10, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25];
@@ -49,7 +50,7 @@ function parseBbox(value: string | null) {
 
 function parseLevels(value: string | null) {
   if (!value) return null;
-  const levels = [...new Set(value.split(",").map((part) => Number.parseInt(part, 10)))];
+  const levels = [...new Set(value.split(",").map((part) => /^[234]$/.test(part) ? Number(part) : NaN))];
   return levels.length && levels.every((level) => [2, 3, 4].includes(level)) ? levels : "invalid" as const;
 }
 
@@ -65,12 +66,6 @@ function parseUnderFive(value: string | null) {
   if (["1", "true"].includes(value)) return true;
   if (["0", "false"].includes(value)) return false;
   return "invalid" as const;
-}
-
-function parseDiscoveredWithinHours(value: string | null) {
-  if (!value) return null;
-  const hours = Number.parseInt(value, 10);
-  return [6, 12].includes(hours) ? hours : "invalid" as const;
 }
 
 function resolveScanLocation(lat: number, lng: number) {
@@ -103,8 +98,9 @@ export async function GET(request: Request) {
   if (types === "invalid") return noStoreJson({ error: "invalid types" }, 400);
   const underFive = parseUnderFive(url.searchParams.get("under_five"));
   if (underFive === "invalid") return noStoreJson({ error: "invalid under_five" }, 400);
-  const discoveredWithinHours = parseDiscoveredWithinHours(url.searchParams.get("discovered_within_hours"));
-  if (discoveredWithinHours === "invalid") return noStoreJson({ error: "invalid discovered_within_hours" }, 400);
+  let window;
+  try { window = discoveryWindow(url.searchParams, Math.floor(now / 1000)); }
+  catch (error) { return noStoreJson({ error: String((error as Error).message) }, 400); }
   const cursorValue = url.searchParams.get("cursor");
   const cursor = decodeCursor(cursorValue);
   if (cursorValue && !cursor) return noStoreJson({ error: "invalid cursor" }, 400);
@@ -141,10 +137,10 @@ export async function GET(request: Request) {
     }
     where.push(`(${typeClauses.join(" OR ")})`);
   }
-  if (underFive) where.push("challenger_count >= 0", "challenger_count < 5");
-  if (discoveredWithinHours) {
-    where.push("MAX(first_seen, CAST(start_ms / 1000 AS INTEGER)) >= ?");
-    bindings.push(Math.floor(now / 1000) - discoveredWithinHours * 60 * 60);
+  if (underFive) where.push(UNDER_FIVE_SQL);
+  if (window) {
+    where.push(`${DISCOVERY_SQL} >= ?`, `${DISCOVERY_SQL} <= ?`);
+    bindings.push(window.from, window.to);
   }
   if (bbox) {
     where.push("lat >= ?", "lat <= ?");
@@ -242,6 +238,11 @@ export async function GET(request: Request) {
   const hasMore = paginated && mushrooms.results.length > limit;
   const last = hasMore ? rawRows.at(-1) : null;
   return noStoreJson({
+    query_contract: {
+      version: QUERY_CONTRACT_VERSION, time_field: "discovered_at", time_unit: "unix_seconds",
+      boundaries: "inclusive", window, under_five: underFive,
+      requires_valid_capacity: underFive, levels, types, scope: bbox ? "bbox" : "world",
+    },
     updated: Math.floor(now / 1000),
     count: Number(countResult?.count ?? publicMushrooms.length),
     returned: publicMushrooms.length,
