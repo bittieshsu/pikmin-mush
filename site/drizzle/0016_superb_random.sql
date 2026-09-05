@@ -1,0 +1,1 @@
+ALTER TABLE `mushroom_observations` ADD `target_id` integer;

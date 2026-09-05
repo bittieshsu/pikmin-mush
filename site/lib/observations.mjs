@@ -10,7 +10,7 @@ export function observationIdentity(row, agentId, receivedAt) {
   };
 }
 
-export function observationStatements(db, row, agentId, now) {
+export function observationStatements(db, row, agentId, now, targetId = null) {
   const rows = Array.isArray(row) ? row : [row];
   const identities = rows.map(row => observationIdentity(row, agentId, now));
   const placeholders = count => rows.map(() => `(${Array(count).fill("?").join(",")})`).join(",");
@@ -24,9 +24,9 @@ export function observationStatements(db, row, agentId, now) {
       VALUES ${placeholders(6)} ON CONFLICT(key) DO UPDATE SET last_observed_at=excluded.last_observed_at`)
       .bind(...rows.flatMap((row,i) => [identities[i].challenge,row.id,Math.max(0,row.start_ms),identities[i].confidence,now,now])),
     db.prepare(`INSERT OR IGNORE INTO mushroom_observations
-      (key,challenge_key,agent_id,received_at,level,type,challenger_count,challenger_capacity,total_power,finish_ms)
-      VALUES ${placeholders(10)}`)
+      (key,challenge_key,agent_id,received_at,level,type,challenger_count,challenger_capacity,total_power,finish_ms,target_id)
+      VALUES ${placeholders(11)}`)
       .bind(...rows.flatMap((row,i) => [identities[i].key,identities[i].challenge,agentId,now,row.level,row.type,
-        row.challenger_count,row.challenger_capacity,row.total_power,row.finish_ms])),
+        row.challenger_count,row.challenger_capacity,row.total_power,row.finish_ms,targetId])),
   ];
 }

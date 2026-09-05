@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   }
   const rows = parseTsv(complete);
   if (rows.length > MAX_ROWS_PER_UPLOAD) return plain("too many rows\n", 413);
-  await upsertMushrooms(rows, agent.id);
+  await upsertMushrooms(rows, agent.id, agent.current_target_id);
   await runMushroomRetention();
   await db.prepare(`UPDATE scan_agents SET
       partial_text = ?,
