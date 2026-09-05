@@ -84,7 +84,9 @@ test("hardens uploads, public telemetry, controller credentials, and browser pol
   assert.match(eventSpots, /jp-nintendo-tokyo/);
   assert.match(eventSpots, /jp-miyajima-sa-shop/);
   assert.match(eventSpots, /us-seattle-pax-red-badge/);
-  assert.ok(eventSpots.includes("https://collectworldmap.pixnet.net/"));
+  const catalogueUrl = new URL(eventSpots.match(/const sourceUrl = "([^"]+)"/)?.[1]);
+  assert.equal(catalogueUrl.protocol, "https:");
+  assert.equal(catalogueUrl.hostname, "collectworldmap.pixnet.net");
   assert.match(eventSpotsPage, /活動金盆地圖/);
   assert.match(eventSpotsPage, /api\/event-spots/);
   assert.match(eventSpotsPage, /data-copy=/);
