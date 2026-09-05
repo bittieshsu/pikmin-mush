@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     rows: count(url.searchParams.get("rows")),
     bytes: count(url.searchParams.get("bytes")),
     message: (url.searchParams.get("message") ?? "").slice(0, 400),
+    outcome: (url.searchParams.get("outcome") ?? "").slice(0, 32),
   });
   const status = result === "missing" ? 404 :
     result === "stale" || result === "stop" ? 409 : 200;

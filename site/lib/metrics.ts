@@ -178,7 +178,7 @@ export async function buildSoakReport(hours = 24) {
   const now = Date.now();
   const start = now - boundedHours * 60 * 60_000;
   const db = runtime().DB;
-  const [agents, events, queue, activeJob] = await Promise.all([
+  const [agents, events, queue, activeJob, outcomes] = await Promise.all([
     db.prepare("SELECT * FROM scan_agents ORDER BY enabled DESC, id").all<AgentHealthRow & {
       id: string; display_name: string;
     }>(),
@@ -198,6 +198,11 @@ export async function buildSoakReport(hours = 24) {
       GROUP BY status`).all<{ status: string; count: number }>(),
     db.prepare(`SELECT id, status, updated_at FROM scan_jobs
       WHERE status IN ('queued','running','paused') ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`SELECT agent_id,
+      CASE WHEN json_valid(detail) THEN COALESCE(json_extract(detail,'$.outcome'),'legacy_unclassified')
+        ELSE 'legacy_unclassified' END AS outcome, COUNT(*) AS count
+      FROM scan_agent_events WHERE at>=? AND event_type IN ('target_completed','target_failed')
+      GROUP BY agent_id,outcome`).bind(start).all(),
   ]);
   const byAgent = new Map(events.results.map((row) => [row.agent_id, row]));
   const reports = agents.results.map((agent) => {
@@ -254,6 +259,8 @@ export async function buildSoakReport(hours = 24) {
         (sum, row) => sum + row.average_target_ms, 0) / reports.length) : 0,
     },
     queue: queueCounts,
+    scan_outcomes: outcomes.results,
+    scan_outcomes_note: "zero_unclassified 不是確認空點；舊 Agent 未回報證據時不猜測原因",
     active_job: activeJob ?? null,
     agents: reports,
   };
