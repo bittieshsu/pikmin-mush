@@ -41,3 +41,36 @@ and any unverified boundaries here. Never record tokens or webhook URLs.
   the user's replacement catalogue; update assertions to the approved dataset.
 - Report retry selection currently uses retry time as the end of the window.
 - Report chunks currently have no independent durable acknowledgement.
+
+## Delivery evidence (2026-09-05)
+
+- Baseline + query contract: GitHub PR 74 merged; Sites 70 succeeded.
+  Live six-hour level-3/under-five query returned 76 rows, zero participant or
+  time-bound violations. Global paginated notifier fetch completed (7,767 rows).
+- Notifier query/outbox: ody-line-bot PRs 10 and 11 merged. Full Python suite:
+  221 passed. Restarted service; one 127.0.0.1:8000 listener and both health
+  endpoints OK. A labelled Discord test was acknowledged and a repeated call
+  did not send it again. Outbox does not claim exactly-once for ambiguous errors.
+- History: PR 76 merged, Sites 71 succeeded; live D1 observations received from
+  Leo and Cancer after rollout. New history is ingestion evidence, not invented
+  historic game observations. Historical discovery corrections remain unknown.
+- Scan diagnostics: PR 77 merged; release 72 in verification. Old phone zero-row
+  results are deliberately unclassified, not claimed to be empty-map evidence.
+- Allocation: PR 78 merged; shadow-only, minimum 24h plus sample gates. Canary
+  evaluation and live allocation activation are not yet completed.
+- Maintenance: versioned lazy catalogue seeding, static CSP fallback, accurate
+  source/date labels and release contract are being validated.
+
+## Explicit remaining boundaries
+
+The work is an incremental foundation, not proof that every long-running goal
+is complete. Still needed: a full-day shadow/canary comparison; phone-side
+evidence to distinguish duplicate from truly empty scans; a persistent candidate
+job lifecycle before verification (the outbox currently freezes delivery rows);
+and a cross-interface exclusion-count view. Active device credentials have not
+been mass-rotated during this release, to avoid unauthenticated/offline devices.
+
+Nonbreaking dependency updates removed three advisory groups. Two high build
+dependency advisories remain via vinext/image-size; npm's offered fix upgrades
+the framework across a breaking version. Do not claim all dependency risks are
+resolved or use audit --force without a separate compatibility validation.

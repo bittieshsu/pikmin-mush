@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { isUsefulMushroomLevel } from "./mushroom-policy.mjs";
 import { EVENT_SPOT_SEED } from "./event-spots";
 import { observationStatements } from "./observations.mjs";
+import { catalogueStatements, CATALOGUE_STATE, CATALOGUE_REVISION } from "./catalogue-seed.mjs";
 
 export type MushroomRow = {
   id: string;
@@ -426,22 +427,13 @@ async function ensureCopyAuditSchema(db: RuntimeEnv["DB"]) {
   ]);
 }
 
-async function seedEventSpots(db: RuntimeEnv["DB"]) {
-  const now = Date.now();
-  // This published community catalogue is deliberately canonical.  Clearing
-  // earlier seeds prevents removed or duplicate locations from lingering.
-  await db.batch([
-    db.prepare("DELETE FROM event_spots"),
-    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT INTO event_spots (
-      id, country, city, name, lat, lng, spot_kind, reward_kind, reward_summary,
-      start_at, end_at, cooldown_note, eligibility_note, coordinate_note,
-      verification_status, source_title, source_url, last_verified_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(spot.id, spot.country, spot.city, spot.name, spot.lat, spot.lng, spot.spotKind,
-        spot.rewardKind, spot.rewardSummary, spot.startAt, spot.endAt, spot.cooldownNote,
-        spot.eligibilityNote, spot.coordinateNote, spot.verificationStatus, spot.sourceTitle,
-        spot.sourceUrl, spot.lastVerifiedAt, now)),
-  ]);
+export async function ensureEventSpotCatalogue() {
+  const db=runtime().DB;
+  await db.prepare("INSERT OR IGNORE INTO maintenance_state (name) VALUES (?)").bind(CATALOGUE_STATE).run();
+  const state=await db.prepare("SELECT last_run_at FROM maintenance_state WHERE name=?").bind(CATALOGUE_STATE).first<{last_run_at:number}>();
+  if (Number(state?.last_run_at ?? 0)>=CATALOGUE_REVISION) return;
+  // One atomic transaction: same/older Workers cannot overwrite a newer seed.
+  await db.batch(catalogueStatements(db,EVENT_SPOT_SEED,CATALOGUE_REVISION,Date.now()));
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -459,9 +451,7 @@ export async function ensureSchema() {
     // separate idempotent migration so healthy production databases receive it
     // without forcing a broad schema reinitialization.
     await ensureCopyAuditSchema(db);
-    // Migrations can create event_spots before a Worker starts. Seed separately
-    // so a migrated, otherwise healthy database cannot serve an empty map.
-    await seedEventSpots(db);
+    // Catalogue seeding belongs only to the event-spots route, not scan uploads.
   })();
   schemaReady = attempt;
   try {
