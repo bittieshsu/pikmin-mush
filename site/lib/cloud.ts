@@ -33,6 +33,7 @@ type RuntimeEnv = {
   AGENT_TOKEN?: string;
   CONTROLLER_TOKEN?: string;
   ADMIN_EMAILS?: string;
+  COPY_AUDIT_HASH_KEY?: string;
 };
 
 export function runtime(): RuntimeEnv {
@@ -359,6 +360,7 @@ async function initializeSchema() {
       ON scan_rotation_runs (updated_at)`),
   ]);
   await patchColumns(db);
+  await ensureCopyAuditSchema(db);
   const now = Date.now();
   await db.batch([
     db.prepare("INSERT OR IGNORE INTO agent_state (id) VALUES (1)"),
@@ -375,21 +377,61 @@ async function initializeSchema() {
   ]);
 }
 
+async function ensureCopyAuditSchema(db: RuntimeEnv["DB"]) {
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS copy_audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      bucket_minute INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      mushroom_id TEXT NOT NULL,
+      mushroom_lat REAL NOT NULL,
+      mushroom_lng REAL NOT NULL,
+      mushroom_level INTEGER NOT NULL,
+      mushroom_type INTEGER NOT NULL,
+      source_hash TEXT NOT NULL,
+      country TEXT NOT NULL DEFAULT '',
+      asn INTEGER NOT NULL DEFAULT 0,
+      device_class TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(bucket_minute, event_type, mushroom_id, source_hash)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS copy_audit_events_at_idx
+      ON copy_audit_events (at DESC, id DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS copy_audit_events_mushroom_at_idx
+      ON copy_audit_events (mushroom_id, at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS copy_audit_events_source_at_idx
+      ON copy_audit_events (source_hash, at DESC)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS public_usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      bucket_minute INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      dimension TEXT NOT NULL DEFAULT '',
+      mushroom_id TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL,
+      country TEXT NOT NULL DEFAULT '',
+      asn INTEGER NOT NULL DEFAULT 0,
+      device_class TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(bucket_minute, event_type, dimension, mushroom_id, source_hash)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS public_usage_events_at_idx
+      ON public_usage_events (at DESC, id DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS public_usage_events_type_at_idx
+      ON public_usage_events (event_type, at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS public_usage_events_source_at_idx
+      ON public_usage_events (source_hash, at DESC)`),
+  ]);
+}
+
 async function seedEventSpots(db: RuntimeEnv["DB"]) {
   const now = Date.now();
-  // These earlier Seattle markers were replaced by nine specific Special Spot
-  // records (community-sourced coordinates).  Keep the database seed
-  // idempotent while removing retired records from deployments that already
-  // received an older seed.
-  const retiredSpotIds = [
-    "us-seattle-aquarium-miniwalk",
-    "us-seattle-aquarium-pier59",
-    "us-seattle-aquarium-pier60",
-    "us-seattle-aquarium-ocean-pavilion",
-  ];
+  // This published community catalogue is deliberately canonical.  Clearing
+  // earlier seeds prevents removed or duplicate locations from lingering.
   await db.batch([
-    ...retiredSpotIds.map((id) => db.prepare("DELETE FROM event_spots WHERE id=?").bind(id)),
-    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT OR IGNORE INTO event_spots (
+    db.prepare("DELETE FROM event_spots"),
+    ...EVENT_SPOT_SEED.map((spot) => db.prepare(`INSERT INTO event_spots (
       id, country, city, name, lat, lng, spot_kind, reward_kind, reward_summary,
       start_at, end_at, cooldown_note, eligibility_note, coordinate_note,
       verification_status, source_title, source_url, last_verified_at, updated_at
@@ -412,6 +454,10 @@ export async function ensureSchema() {
     } else {
       await initializeSchema();
     }
+    // This table was added after the original schema probe. Keep it as a
+    // separate idempotent migration so healthy production databases receive it
+    // without forcing a broad schema reinitialization.
+    await ensureCopyAuditSchema(db);
     // Migrations can create event_spots before a Worker starts. Seed separately
     // so a migrated, otherwise healthy database cannot serve an empty map.
     await seedEventSpots(db);

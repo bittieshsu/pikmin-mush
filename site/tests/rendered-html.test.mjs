@@ -21,7 +21,7 @@ test("ships the public mushroom map and protected scan console", async () => {
   assert.match(map, /api\/mushrooms/);
   assert.doesNotMatch(map, /id="lv1"/);
   assert.match(map, /\[2,3,4\]/);
-  assert.match(map, /EVENT_TYPE_IDS=new Set\(\['15','21','23','24'\]\)/);
+  assert.match(map, /EVENT_TYPE_IDS=new Set\(\['10','14','15','16','19','20','21','22','23','24','25'\]\)/);
   assert.match(map, /DEFAULT_HIDDEN_TYPE_KEYS=new Set\(\['event'\]\)/);
   assert.match(map, /selectedTypes\.has\(typeKey\(m\.type\)\)/);
   assert.match(map, /integrity="sha256-/);
@@ -82,9 +82,9 @@ test("hardens uploads, public telemetry, controller credentials, and browser pol
   assert.match(eventSpotsApi, /ensureSchema/);
   assert.match(eventSpotsApi, /\["active", "all", "ended"\]\.includes\(requestedStatus\)/);
   assert.match(eventSpots, /jp-nintendo-tokyo/);
-  assert.match(eventSpots, /jp-miyajima-terrace/);
-  assert.match(eventSpots, /de-gamescom-2026-spot-1/);
-  assert.match(eventSpots, /august26-gamescom/);
+  assert.match(eventSpots, /jp-miyajima-sa-shop/);
+  assert.match(eventSpots, /us-seattle-pax-red-badge/);
+  assert.match(eventSpots, /collectworldmap.pixnet.net/);
   assert.match(eventSpotsPage, /活動金盆地圖/);
   assert.match(eventSpotsPage, /api\/event-spots/);
   assert.match(eventSpotsPage, /data-copy=/);
@@ -280,6 +280,43 @@ test("defaults the public map to mushrooms with fewer than five participants", a
   assert.match(map, /id="under-five-only" checked> 僅列出未滿 5 人/);
   assert.match(map, /function isUnderFive\(m\)/);
   assert.match(map, /!underFiveOnly\|\|isUnderFive\(m\)/);
+});
+
+test("records privacy-preserving public-usage telemetry for the protected console", async () => {
+  const [schema, cloud, audit, copyRoute, eventRoute, adminRoute, adminClient, map, migration, usageMigration] = await Promise.all([
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("lib/cloud.ts", root), "utf8"),
+    readFile(new URL("lib/copy-audit.ts", root), "utf8"),
+    readFile(new URL("app/api/audit/copy/route.ts", root), "utf8"),
+    readFile(new URL("app/api/audit/event/route.ts", root), "utf8"),
+    readFile(new URL("app/api/admin/copy-audit/route.ts", root), "utf8"),
+    readFile(new URL("app/admin/admin-client.tsx", root), "utf8"),
+    readFile(new URL("public/map.html", root), "utf8"),
+    readFile(new URL("drizzle/0013_copy_audit_events.sql", root), "utf8"),
+    readFile(new URL("drizzle/0014_public_usage_events.sql", root), "utf8"),
+  ]);
+  assert.match(schema, /copyAuditEvents/);
+  assert.match(schema, /publicUsageEvents/);
+  assert.match(cloud, /COPY_AUDIT_HASH_KEY/);
+  assert.match(cloud, /CREATE TABLE IF NOT EXISTS copy_audit_events/);
+  assert.match(audit, /CF-Connecting-IP/);
+  assert.match(audit, /SHA-256/);
+  assert.match(audit, /COPY_AUDIT_RETENTION_SECONDS = 30/);
+  assert.doesNotMatch(audit, /INSERT[\s\S]*cf-connecting-ip/i);
+  assert.match(copyRoute, /sameOrigin/);
+  assert.match(copyRoute, /readBoundedUtf8/);
+  assert.match(copyRoute, /SELECT id FROM mushrooms WHERE id=\?/);
+  assert.match(eventRoute, /map_focus/);
+  assert.match(eventRoute, /sameOrigin/);
+  assert.match(adminRoute, /adminAuthorized/);
+  assert.match(adminClient, /GPS 複製紀錄/);
+  assert.match(map, /api\/audit\/copy/);
+  assert.match(map, /api\/audit\/event/);
+  assert.match(map, /daily_active_sources|page_view|map_focus/);
+  assert.match(map, /data-id=/);
+  assert.match(migration, /CREATE TABLE `copy_audit_events`/);
+  assert.match(migration, /CREATE UNIQUE INDEX `copy_audit_events_bucket_uidx`/);
+  assert.match(usageMigration, /CREATE TABLE `public_usage_events`/);
 });
 
 test("shows the Agent that discovered a mushroom without guessing legacy sources", async () => {

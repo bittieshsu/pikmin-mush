@@ -169,6 +169,25 @@ type Dashboard = {
   };
 };
 
+type CopyAudit = {
+  retention_days: number;
+  summary: { rows: number; copies: number; sources: number; mushrooms: number };
+  analytics: {
+    daily_active_sources: number;
+    popular_mushrooms: Array<{ mushroom_id: string; mushroom_lat: number; mushroom_lng: number; mushroom_level: number; mushroom_type: number; copies: number; sources: number }>;
+    filter_stats: Array<{ dimension: string; uses: number; sources: number }>;
+    map_focus_stats: Array<{ mushroom_id: string; opens: number; sources: number }>;
+    api_errors: Array<{ dimension: string; errors: number; sources: number }>;
+    anomalous_copy_sources: Array<{ source_hash: string; country: string; asn: number; copies: number; mushrooms: number }>;
+  };
+  events: Array<{
+    id: number; at: number; event_type: "copy_gps" | "copy_info";
+    mushroom_id: string; mushroom_lat: number; mushroom_lng: number;
+    mushroom_level: number; mushroom_type: number; source_hash: string;
+    country: string; asn: number; device_class: string; event_count: number;
+  }>;
+};
+
 const ACTIVE = new Set(["queued", "running", "paused"]);
 const NORDIC_REGION_NAMES = COUNTRY_PACK_LABELS
   .filter((pack) => pack.region === "北歐")
@@ -234,6 +253,8 @@ export default function AdminClient({
   const [dashboardLoadedAt, setDashboardLoadedAt] = useState(0);
   const [soakError, setSoakError] = useState("");
   const [jobReportError, setJobReportError] = useState("");
+  const [copyAudit, setCopyAudit] = useState<CopyAudit | null>(null);
+  const [copyAuditError, setCopyAuditError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -271,6 +292,17 @@ export default function AdminClient({
     }
   }, []);
 
+  const refreshCopyAudit = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/copy-audit?hours=24&limit=200", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setCopyAudit(await response.json());
+      setCopyAuditError("");
+    } catch (error) {
+      setCopyAuditError(`使用者複製紀錄暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
+    }
+  }, []);
+
   useEffect(() => {
     const initial = window.setTimeout(() => {
       refresh().catch(() => undefined);
@@ -296,6 +328,12 @@ export default function AdminClient({
       window.clearInterval(timer);
     };
   }, [refreshMetrics]);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => { refreshCopyAudit(); }, 0);
+    const timer = window.setInterval(refreshCopyAudit, 60_000);
+    return () => { window.clearTimeout(initial); window.clearInterval(timer); };
+  }, [refreshCopyAudit]);
 
   useEffect(() => {
     const jobId = dashboard?.job?.id;
@@ -946,6 +984,47 @@ export default function AdminClient({
               </div>
             )) : <p className={styles.empty}>{dashboard ? "尚無掃描紀錄" : "掃描紀錄讀取中"}</p>}
           </div>
+        </section>
+
+        <section className={`${styles.panel} ${styles.copyAuditPanel}`}>
+          <div className={styles.panelTitle}>
+            <div><span>PUBLIC USAGE</span><h2>GPS 複製紀錄（最近 24 小時）</h2></div>
+            <button onClick={() => refreshCopyAudit()} disabled={busy}>重新整理</button>
+          </div>
+          <p className={styles.copyAuditNote}>來源以不可逆雜湊識別碼呈現；不保存完整 IP，資料保留 {copyAudit?.retention_days ?? 30} 天。</p>
+          {copyAuditError ? <p className={styles.error}>{copyAuditError}</p> : <>
+            <div className={styles.copyAuditSummary}>
+              <span>複製 <strong>{copyAudit?.summary.copies ?? 0}</strong> 次</span>
+              <span>來源 <strong>{copyAudit?.summary.sources ?? 0}</strong></span>
+              <span>蘑菇 <strong>{copyAudit?.summary.mushrooms ?? 0}</strong></span>
+              <span>今日活躍來源 <strong>{copyAudit?.analytics.daily_active_sources ?? 0}</strong></span>
+            </div>
+            {copyAudit?.analytics.anomalous_copy_sources.length ? <div className={styles.copyAuditAlert}>
+              ⚠️ 異常大量複製：近 15 分鐘 {copyAudit.analytics.anomalous_copy_sources.map((source) =>
+                `${source.source_hash}${source.country ? `・${source.country}` : ""} ${source.copies} 次／${source.mushrooms} 個`).join("；")}
+            </div> : null}
+            <div className={styles.copyAnalytics}>
+              <article><h3>熱門蘑菇</h3>{copyAudit?.analytics.popular_mushrooms.length ? copyAudit.analytics.popular_mushrooms.slice(0, 5).map((mushroom) =>
+                <p key={mushroom.mushroom_id}>Lv.{mushroom.mushroom_level}・Type {mushroom.mushroom_type}　{Number(mushroom.mushroom_lat).toFixed(4)}, {Number(mushroom.mushroom_lng).toFixed(4)}<br /><strong>{mushroom.copies}</strong> 次複製／{mushroom.sources} 來源</p>) : <p>尚無資料</p>}</article>
+              <article><h3>篩選與搜尋</h3>{copyAudit?.analytics.filter_stats.length ? copyAudit.analytics.filter_stats.slice(0, 5).map((stat) =>
+                <p key={stat.dimension}><code>{stat.dimension}</code><br /><strong>{stat.uses}</strong> 次／{stat.sources} 來源</p>) : <p>尚無資料</p>}</article>
+              <article><h3>地圖定位</h3>{copyAudit?.analytics.map_focus_stats.length ? copyAudit.analytics.map_focus_stats.slice(0, 5).map((stat) =>
+                <p key={stat.mushroom_id}><code>{stat.mushroom_id}</code><br /><strong>{stat.opens}</strong> 次／{stat.sources} 來源</p>) : <p>尚無資料</p>}</article>
+              <article><h3>API 錯誤</h3>{copyAudit?.analytics.api_errors.length ? copyAudit.analytics.api_errors.slice(0, 5).map((stat) =>
+                <p key={stat.dimension}><code>{stat.dimension}</code><br /><strong>{stat.errors}</strong> 次／{stat.sources} 來源</p>) : <p>尚無使用者端 API 錯誤</p>}</article>
+            </div>
+            <div className={styles.copyAuditRows}>
+              {copyAudit?.events.length ? copyAudit.events.map((event) => (
+                <div key={event.id} className={styles.copyAuditRow}>
+                  <time>{formatTime(event.at * 1000)}</time>
+                  <span>{event.event_type === "copy_gps" ? "複製 GPS" : "複製資訊"}{event.event_count > 1 ? ` ×${event.event_count}` : ""}</span>
+                  <code>Lv.{event.mushroom_level}・Type {event.mushroom_type}</code>
+                  <span>{Number(event.mushroom_lat).toFixed(6)}, {Number(event.mushroom_lng).toFixed(6)}</span>
+                  <span>來源 {event.source_hash}{event.country ? `・${event.country}` : ""}{event.asn ? `・AS${event.asn}` : ""}・{event.device_class}</span>
+                </div>
+              )) : <p className={styles.empty}>尚無 GPS 複製紀錄</p>}
+            </div>
+          </>}
         </section>
       </div>
     </main>

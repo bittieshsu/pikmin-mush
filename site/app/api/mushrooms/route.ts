@@ -3,8 +3,17 @@ import {
 } from "../../../lib/cloud";
 import { publicAgent, type ScanAgentRow } from "../../../lib/fleet";
 import { MIN_MUSHROOM_LEVEL } from "../../../lib/mushroom-policy.mjs";
+import { COUNTRY_PACK_CATALOG } from "../../../lib/scan-plans";
 
 const MAX_PAGE_SIZE = 1_000;
+const EVENT_TYPE_IDS = [10, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25];
+const ICE_TYPE_IDS = [26, 27, 28, 29, 30, 31, 32, 33];
+const LOCATION_MATCH_RADIUS_KM = 120;
+const SCAN_LOCATION_CATALOG = COUNTRY_PACK_CATALOG.flatMap((pack) => pack.cities.map(
+  ([city, lat, lng]) => ({
+    country: pack.name.replace(/^美國(?:東部|中部|西部)$/, "美國"), city, lat, lng,
+  }),
+));
 
 type Cursor = { lastSeen: number; id: string };
 
@@ -38,6 +47,48 @@ function parseBbox(value: string | null) {
   return { west, south, east, north };
 }
 
+function parseLevels(value: string | null) {
+  if (!value) return null;
+  const levels = [...new Set(value.split(",").map((part) => Number.parseInt(part, 10)))];
+  return levels.length && levels.every((level) => [2, 3, 4].includes(level)) ? levels : "invalid" as const;
+}
+
+function parseTypes(value: string | null) {
+  if (!value) return null;
+  const types = [...new Set(value.split(",").map((part) => part.trim()))];
+  return types.length && types.every((type) => ["event", "ice"].includes(type) || /^\d{1,3}$/.test(type))
+    ? types : "invalid" as const;
+}
+
+function parseUnderFive(value: string | null) {
+  if (!value) return false;
+  if (["1", "true"].includes(value)) return true;
+  if (["0", "false"].includes(value)) return false;
+  return "invalid" as const;
+}
+
+function parseDiscoveredWithinHours(value: string | null) {
+  if (!value) return null;
+  const hours = Number.parseInt(value, 10);
+  return [6, 12].includes(hours) ? hours : "invalid" as const;
+}
+
+function resolveScanLocation(lat: number, lng: number) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return {};
+  const nearest = SCAN_LOCATION_CATALOG.reduce<{ distance: number; country: string; city: string } | null>(
+    (best, candidate) => {
+      const distance = Math.hypot(
+        (lat - candidate.lat) * 111,
+        (lng - candidate.lng) * 111 * Math.cos(lat * Math.PI / 180),
+      );
+      return !best || distance < best.distance
+        ? { distance, country: candidate.country, city: candidate.city } : best;
+    }, null,
+  );
+  return nearest && nearest.distance <= LOCATION_MATCH_RADIUS_KM
+    ? { location_country: nearest.country, location_city: nearest.city } : {};
+}
+
 export async function GET(request: Request) {
   await ensureSchema();
   const retention = await runMushroomRetention();
@@ -46,6 +97,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const bbox = parseBbox(url.searchParams.get("bbox"));
   if (bbox === "invalid") return noStoreJson({ error: "invalid bbox" }, 400);
+  const levels = parseLevels(url.searchParams.get("levels"));
+  if (levels === "invalid") return noStoreJson({ error: "invalid levels" }, 400);
+  const types = parseTypes(url.searchParams.get("types"));
+  if (types === "invalid") return noStoreJson({ error: "invalid types" }, 400);
+  const underFive = parseUnderFive(url.searchParams.get("under_five"));
+  if (underFive === "invalid") return noStoreJson({ error: "invalid under_five" }, 400);
+  const discoveredWithinHours = parseDiscoveredWithinHours(url.searchParams.get("discovered_within_hours"));
+  if (discoveredWithinHours === "invalid") return noStoreJson({ error: "invalid discovered_within_hours" }, 400);
   const cursorValue = url.searchParams.get("cursor");
   const cursor = decodeCursor(cursorValue);
   if (cursorValue && !cursor) return noStoreJson({ error: "invalid cursor" }, 400);
@@ -61,6 +120,32 @@ export async function GET(request: Request) {
     "(finish_ms = 0 OR finish_ms > ?)",
   ];
   const bindings: unknown[] = [MIN_MUSHROOM_LEVEL, now];
+  if (levels) {
+    where.push(`level IN (${levels.map(() => "?").join(", ")})`);
+    bindings.push(...levels);
+  }
+  if (types) {
+    const numericTypes = types.filter((type) => !["event", "ice"].includes(type)).map(Number);
+    const typeClauses: string[] = [];
+    if (numericTypes.length) {
+      typeClauses.push(`type IN (${numericTypes.map(() => "?").join(", ")})`);
+      bindings.push(...numericTypes);
+    }
+    if (types.includes("event")) {
+      typeClauses.push(`type IN (${EVENT_TYPE_IDS.map(() => "?").join(", ")})`);
+      bindings.push(...EVENT_TYPE_IDS);
+    }
+    if (types.includes("ice")) {
+      typeClauses.push(`type IN (${ICE_TYPE_IDS.map(() => "?").join(", ")})`);
+      bindings.push(...ICE_TYPE_IDS);
+    }
+    where.push(`(${typeClauses.join(" OR ")})`);
+  }
+  if (underFive) where.push("challenger_count >= 0", "challenger_count < 5");
+  if (discoveredWithinHours) {
+    where.push("MAX(first_seen, CAST(start_ms / 1000 AS INTEGER)) >= ?");
+    bindings.push(Math.floor(now / 1000) - discoveredWithinHours * 60 * 60);
+  }
   if (bbox) {
     where.push("lat >= ?", "lat <= ?");
     bindings.push(bbox.south, bbox.north);
@@ -149,6 +234,7 @@ export async function GET(request: Request) {
     const challengeStarted = Math.floor(Number(mushroom.start_ms ?? 0) / 1000);
     return {
       ...mushroom,
+      ...resolveScanLocation(Number(mushroom.lat), Number(mushroom.lng)),
       discovered_at: Math.max(firstSeen, challengeStarted),
       discovered_by: agentNames.get(String(mushroom.discovered_by_agent_id ?? "")) ?? "",
     };
