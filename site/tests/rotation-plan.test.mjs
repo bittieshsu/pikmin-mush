@@ -62,7 +62,27 @@ test("assigns three Agents distinct balanced priority routes without Taiwan or J
   assert.ok(seenPacks.has("nz"));
   assert.ok(seenPacks.has("ae"));
   assert.ok(seenPacks.has("ro"));
-  assert.ok(seenPacks.has("no"));
+  assert.ok(seenPacks.has("fi"));
+  assert.ok(seenPacks.has("us-west"));
+});
+
+test("each scheduled route is already safely in its local new day", () => {
+  // 07:30 Taipei is the risky boundary: UTC+1 Europe would only be 00:30,
+  // so route selection must use the curated UTC+2-or-later groups instead.
+  const morning = planDailyRotation(
+    ["agent-1", "agent-2", "agent-3"],
+    Date.parse("2026-09-01T23:30:00Z"),
+  );
+  assert.equal(morning.slot, "morning");
+  assert.ok(morning.assignments.every((route) => route.id.startsWith("morning-")));
+
+  // 19:30 Taipei maps to the morning of the same local date in the Americas.
+  const evening = planDailyRotation(
+    ["agent-1", "agent-2", "agent-3"],
+    Date.parse("2026-09-01T11:30:00Z"),
+  );
+  assert.equal(evening.slot, "evening");
+  assert.ok(evening.assignments.every((route) => route.id.startsWith("evening-")));
 });
 
 test("morning and evening assignments never repeat the previous routes", () => {

@@ -45,8 +45,8 @@ export async function POST(request: Request) {
   if (!agentId || !batch || !["candidate", "giant-recheck"].includes(kind)) {
     return noStoreJson({ error: "agentId, batch and a supported kind are required" }, 400);
   }
-  if (kind === "candidate" && (!rawCandidates.length || rawCandidates.length > 30)) {
-    return noStoreJson({ error: "candidate verification requires 1-30 candidates" }, 400);
+  if (kind === "candidate" && !rawCandidates.length) {
+    return noStoreJson({ error: "candidate verification requires at least one candidate" }, 400);
   }
   if (kind === "giant-recheck" && rawCandidates.length) {
     return noStoreJson({ error: "giant recheck selects candidates on the server" }, 400);

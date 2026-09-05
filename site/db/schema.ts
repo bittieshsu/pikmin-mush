@@ -33,6 +33,51 @@ export const maintenanceState = sqliteTable("maintenance_state", {
   pending: integer("pending").notNull().default(0),
 });
 
+export const copyAuditEvents = sqliteTable("copy_audit_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  at: integer("at").notNull(),
+  bucketMinute: integer("bucket_minute").notNull(),
+  eventType: text("event_type").notNull(),
+  mushroomId: text("mushroom_id").notNull(),
+  mushroomLat: real("mushroom_lat").notNull(),
+  mushroomLng: real("mushroom_lng").notNull(),
+  mushroomLevel: integer("mushroom_level").notNull(),
+  mushroomType: integer("mushroom_type").notNull(),
+  sourceHash: text("source_hash").notNull(),
+  country: text("country").notNull().default(""),
+  asn: integer("asn").notNull().default(0),
+  deviceClass: text("device_class").notNull().default(""),
+  eventCount: integer("event_count").notNull().default(1),
+}, (table) => [
+  index("copy_audit_events_at_idx").on(table.at, table.id),
+  index("copy_audit_events_mushroom_at_idx").on(table.mushroomId, table.at),
+  index("copy_audit_events_source_at_idx").on(table.sourceHash, table.at),
+  uniqueIndex("copy_audit_events_bucket_uidx").on(
+    table.bucketMinute, table.eventType, table.mushroomId, table.sourceHash,
+  ),
+]);
+
+export const publicUsageEvents = sqliteTable("public_usage_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  at: integer("at").notNull(),
+  bucketMinute: integer("bucket_minute").notNull(),
+  eventType: text("event_type").notNull(),
+  dimension: text("dimension").notNull().default(""),
+  mushroomId: text("mushroom_id").notNull().default(""),
+  sourceHash: text("source_hash").notNull(),
+  country: text("country").notNull().default(""),
+  asn: integer("asn").notNull().default(0),
+  deviceClass: text("device_class").notNull().default(""),
+  eventCount: integer("event_count").notNull().default(1),
+}, (table) => [
+  index("public_usage_events_at_idx").on(table.at, table.id),
+  index("public_usage_events_type_at_idx").on(table.eventType, table.at),
+  index("public_usage_events_source_at_idx").on(table.sourceHash, table.at),
+  uniqueIndex("public_usage_events_bucket_uidx").on(
+    table.bucketMinute, table.eventType, table.dimension, table.mushroomId, table.sourceHash,
+  ),
+]);
+
 export const eventSpots = sqliteTable("event_spots", {
   id: text("id").primaryKey(),
   country: text("country").notNull(), city: text("city").notNull(), name: text("name").notNull(),

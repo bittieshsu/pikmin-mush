@@ -19,8 +19,8 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-const MAP_SCRIPT_HASH = "'sha256-kWVhdZFhrqH4VacH5TSlTxe5es22e9lc36rTGVercdo='";
-const EVENT_SPOTS_SCRIPT_HASH = "'sha256-uJ12ohxrD5i47AfdBTyykagBqLSDsVXCxqZ+q8HPrYo='";
+const MAP_SCRIPT_HASH = "'sha256-KjqPwkz9ylbU7Wa7zMa16/EzCDilUp1xjsD2IoA4UI4='";
+const EVENT_SPOTS_SCRIPT_HASH = "'sha256-8C+eaDQsXkFY9xOb11FbrQvIU5EPngayawdCjnSv4PY='";
 
 function withSecurityHeaders(response: Response, strictMap = false) {
   const secured = new Response(response.body, response);

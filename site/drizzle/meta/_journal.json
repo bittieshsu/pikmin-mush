@@ -92,6 +92,20 @@
       "when": 1787719840914,
       "tag": "0012_naive_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788110000000,
+      "tag": "0013_copy_audit_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788111000000,
+      "tag": "0014_public_usage_events",
+      "breakpoints": true
     }
   ]
 }
