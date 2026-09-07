@@ -32,22 +32,62 @@ activate city routing changes before the existing observation/canary gates.
    No webhook, token, message body or IP is sent to the audit table. Retention
    is 30 days; unpublished local audit events survive sync failures.
 
+## Production release and evidence (2026-09-08, Asia/Taipei)
+
+- Pikmin PR #85 and #86 merged; main `a804aa1`. PR #86 is test-only.
+- Sites **v77** succeeded at 07:07:36, deployment
+  `appgdep_6a9f43a406e08191969c3e52654637c3`, source
+  `4face2fe6cf5a2829d7431d7277789c3a8cbd826` (PR #85 runtime).
+- Discord bot PR #2 and #3 merged; main `597c612`. Service restarted with
+  one listener, healthy scheduler and unchanged notification times. Existing
+  dirty startup-task/VBS changes were preserved, not included in these PRs.
+- Site build and 29 tests passed, lint clean; the additional actual-route
+  pagination test in PR #86 passed separately. Bot suite: 49 passed.
+- Public API checks: five sort modes returned the same fixed six-hour,
+  level-3/under-five set, **76/76 IDs without duplicates**, over two pages each.
+  Chinese query returned 200; map and freshness script returned 200.
+  Anonymous audit GET rejected with 403 and POST with 401.
+- A labelled `release-validation-20260908` empty audit fixture was accepted
+  and acknowledged locally as synced. This proves the authenticated sync
+  path, NOT an actual scheduled report or verified mushroom batch.
+- Aries, Cancer and Leo now run agent.sh SHA-256
+  `2d11f850f4372d2d4063ce8f78abe45da48c085865e9ab8af9092892dc30b762`.
+  Serial identities were checked and previous scripts backed up on each phone
+  as `agent.pre-evidence-20260908.sh`. No native module, GPS configuration,
+  route or game process was restarted/changed. The daemon restart briefly
+  pauses scanning; an in-progress lease may retry and is not a fair benchmark.
+- All three resumed uploads and reported healthy. Initial new-evidence sample:
+  Cancer 3 targets / 4333 ms average refresh / 2 query-only; Leo 16 / 938 ms / 0;
+  Aries 7 / 1571 ms / 0. All had zero recorded fallback restarts/upload errors.
+  These tiny, unequal windows are rollout checks, NOT comparative efficiency
+  conclusions. Query-only is not proof of an empty location or failure.
+- Rollback: use the previous known-good Sites version if needed; revert the
+  relevant bot commit without deleting its delivery database; for phone
+  diagnostics restore the verified per-device backup using the bounded daemon
+  installer workflow. Do not blindly reboot games or discard pending leases.
+
 ## Remaining validation / activation
 
-- Run full site and bot suites, inspect additive migrations and required CI.
-- Merge reviewed changes and publish exact site subtree, record release version.
-- Verify public sort/search/filter bounds and anonymous audit rejection.
-- Deploy phone diagnostics at a safe target boundary, without restarting game;
-  verify each device still scans and uploads and evidence reaches metrics.
-- Restart only the Discord service, preserving dirty unrelated startup changes,
-  frozen reports, delivery ledger and scheduler times. Verify one listener.
-- Exercise labelled audit/delivery fixtures without replacing scheduled reports.
 - Wait for a real verification batch for participants_verified_at and report
   lifecycle acceptance. Do not label a synthetic fixture as real production proof.
+- Verify candidate, verification, exclusion and Discord message-id stages in
+  the authenticated admin timeline, not just the successful fixture POST.
 - City-internal routing changes remain deferred to the existing allocation
   automation; do not disturb the currently collecting comparison.
 - Send the final complete Discord report only after all applicable acceptance
   checks pass, distinguishing any long-running deferred work.
+- Continuation was added to the existing active `discord` thread automation;
+  its **10:30/19:30 Taipei** schedule and allocation gates are unchanged. There
+  is no second heartbeat. It must finish the real report acceptance and the
+  gated city-routing work before sending the full completion report and pausing.
+  Local scheduled work requires the host and Codex app to remain running.
 
-Tests so far: site 29 passed, lint clean; bot 48 passed (before final follow-up
-review). These are local results, not a declaration of production completion.
+## Explicit residual limits
+
+- Native object deduplication still has its existing ten-minute suppression
+  window. This release does not change its comparison fields or prove that all
+  same-location respawns are captured immediately. Any native change needs
+  version-locked build/device validation as a separate experiment.
+- No authenticated browser UI acceptance or genuine scheduled verification
+  batch was completed at this checkpoint. Do not equate API success with those
+  pending checks, nor mark the entire unattended queue complete yet.
