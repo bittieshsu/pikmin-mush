@@ -1,5 +1,12 @@
 # Pikmin Bloom 蘑菇搜尋研究 — WORKLOG
 
+## 2026-09-07 — Leo 152 恢復正式掃描
+
+- PR #81：Hunter 152 的 RVA／簽章及封裝預設版本，網站保留 149–151 並加入配對的 152 支援；24 tests、build、lint、GitHub checks 通過。
+- 暫停測試時 Android mock GPS 雖啟用卻沒有 fix，造成有道路無 POI；有效系統 GPS + Hunter 152 實機擷取及 1km 換點成功。`GmoManager unavailable` 並不代表擷取失敗。
+- 移除 Leo 寫死的 GAME_VERSION=151.0，MODULE_VERSION 改為 152.0；Sites v76 發布成功，恢復原休士頓排程。前四點全為 direct/object，3/6/6/3 筆、14/12/12/13 秒，正常上傳；後台 healthy、無資料連續次數歸零。
+- 未更動 Aries/Cancer；GPS Copy/Nectar 維持原停用狀態。這是恢復驗證，不冒稱 24h soak。完整證據見 `docs/LEO_152_VALIDATION_2026-09-07.md`。
+
 ## 專案目標
 不依附開啟遊戲 APP，搜尋全世界符合條件的蘑菇（Pikmin Bloom）。
 

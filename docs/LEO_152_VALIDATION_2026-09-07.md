@@ -1,4 +1,4 @@
-# Leo 152 compatibility validation — in progress
+# Leo 152 compatibility validation — production scanning restored
 
 Device: agent5-9431de09, marble / 23049PCD8G, Wi-Fi 192.168.50.90:5555.
 Confirmed root uid 0 and game 152.0 / versionCode 1787540739.
@@ -84,3 +84,29 @@ Do not claim fleet operation, recheck, notification or 2h soak validation yet.
 
 Pending: production deployment, agent-process restart to load new version
 metadata, resume and verify fresh uploads and multiple completed leases.
+
+## Production result (2026-09-07 21:22–21:24 Taipei)
+
+The pending items above are completed for Leo's scanning path:
+
+- PR #81 merged, GitHub main 35b1342e2d067dc77b5ab94bb9347302e5658e64.
+- Sites version 76 succeeded; source 10975457bded3bf4ddbeb80bafb21a15a09c18f6.
+  Deployment appgdep_6a9eba65bc4c8191a7087a87d7af59de. Public mushrooms API 200.
+- Restarted only Leo's agent process, preserving pause until publication;
+  startup logs now report game=152.0 module=152.0. Resumed its existing Houston
+  task, not a new regional allocation. Fixed ADB 5555 remained reachable.
+- First four automatic points: 292 (+3, 14s), 289 (+6, 12s), 282 (+6, 12s),
+  279 (+3, 13s), all mode=direct and source=object with successful uploads.
+- Production metrics after the first three completed targets: healthy,
+  no_data_streak=0, captured_rows=15, failed_targets=0 for the observed window;
+  matching 152 compatibility accepted. Captured rows are not a claim of globally
+  unique mushrooms. The earlier expired lease is retained as historical evidence.
+- Game pid 13287 remained unchanged during these automatic points. The crash
+  buffer only showed boot-time init failures, not a game crash in this run.
+- Aries/Cancer and their versions/regions/schedules remain unchanged. GPS Copy
+  and Nectar remain disabled on Leo as before this repair.
+
+This is a successful end-to-end recovery smoke test, not a 2h/24h soak result.
+Manual paused testing must seed Android system GPS before launching the game:
+the scanner creates a mock provider on startup but does not populate positions
+while manually paused; native coordinates alone are insufficient in that state.
