@@ -706,6 +706,10 @@ export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
       ORDER BY received_at LIMIT 5000
     )`).bind(cutoff).run();
   const pending = Math.max(0, eligible - lastDeleted);
+  // Archives are kept beyond the seven-day evidence window and pruned in bounds.
+  await db.prepare(`DELETE FROM scan_target_history WHERE id IN (
+    SELECT id FROM scan_target_history WHERE archived_at < ? ORDER BY archived_at LIMIT 5000
+  )`).bind((cutoff-86400)*1000).run();
   await db.prepare(`UPDATE maintenance_state
       SET last_deleted=?, pending=?
       WHERE name='mushroom-retention'`)

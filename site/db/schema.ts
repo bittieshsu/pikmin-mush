@@ -244,6 +244,15 @@ export const scanTargets = sqliteTable("scan_targets", {
   uniqueIndex("scan_targets_job_sequence_uidx").on(table.jobId, table.sequence),
 ]);
 
+export const scanTargetHistory = sqliteTable("scan_target_history", {
+  id: integer("id").primaryKey(),
+  jobId: integer("job_id").notNull(),
+  cycle: integer("cycle").notNull(),
+  country: text("country").notNull(),
+  verificationKind: text("verification_kind").notNull(),
+  archivedAt: integer("archived_at").notNull(),
+}, table => [index("scan_target_history_archived_idx").on(table.archivedAt)]);
+
 export const scanAgentEvents = sqliteTable("scan_agent_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   agentId: text("agent_id").notNull(),

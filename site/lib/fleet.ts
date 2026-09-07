@@ -2,6 +2,7 @@ import { ensureSchema, runtime, safeEqual } from "./cloud";
 import { activeJob, appendScanLog, parseJobConfig, parseJobPlan, type ScanJobRow } from "./scans";
 import { ensureDailyRotation } from "./rotation";
 import { materializeTargets } from "./targets";
+import { archiveAndDeleteTargets } from "./target-history.mjs";
 import { buildScanPlan, normalizeScanConfig } from "./scan-plans";
 import { classifyScanOutcome, SCAN_OUTCOME_LABELS } from "./scan-outcomes.mjs";
 import {
@@ -307,7 +308,7 @@ async function resetLoop(job: ScanJobRow) {
   const { targets } = buildScanPlan(config, null, { cycle: nextCycle });
   // A shifted global grid can have a different point count.  Rebuild its
   // ordinary targets rather than relabelling the previous cycle's rows.
-  await db.prepare("DELETE FROM scan_targets WHERE job_id=?").bind(job.id).run();
+  await archiveAndDeleteTargets(db, job.id, now);
   await materializeTargets(job.id, targets, { cycle: nextCycle });
   await db.prepare(`UPDATE scan_jobs SET total_points=?, plan_json=?, updated_at=?
     WHERE id=? AND cycle=?`).bind(targets.length, JSON.stringify(targets), now, job.id, nextCycle).run();
