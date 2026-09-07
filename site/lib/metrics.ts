@@ -139,7 +139,7 @@ export async function recordAgentEvent(input: {
 }) {
   const db = runtime().DB;
   const at = input.at ?? Date.now();
-  const detail = String(input.detail ?? "").slice(0, 300);
+  const detail = String(input.detail ?? "").slice(0, 1000);
   if (input.throttleMs) {
     return db.prepare(`INSERT INTO scan_agent_events (
         agent_id, event_type, at, job_id, target_id, rows, bytes, duration_ms, detail

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ReportAudit from './report-audit';
 import { COUNTRY_PACK_LABELS } from "../../lib/scan-plans";
 import styles from "./admin.module.css";
 
@@ -1031,6 +1032,7 @@ export default function AdminClient({
           </>}
         </section>
       </div>
+      <ReportAudit />
     </main>
   );
 }

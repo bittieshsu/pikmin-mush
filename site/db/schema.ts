@@ -1,5 +1,10 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+export const reportAuditEvents = sqliteTable('report_audit_events', {
+  key:text('key').primaryKey(), batch:text('batch').notNull(), phase:text('phase').notNull(),
+  kind:text('kind').notNull(), at:integer('at').notNull(), payload:text('payload').notNull(),
+}, t=>[index('report_audit_at_idx').on(t.at),index('report_audit_batch_idx').on(t.batch,t.at)]);
+
 export const mushrooms = sqliteTable("mushrooms", {
   id: text("id").primaryKey(),
   lat: real("lat").notNull(),
