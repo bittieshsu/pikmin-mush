@@ -5,6 +5,7 @@ import { publicAgent, type ScanAgentRow } from "../../../lib/fleet";
 import { MIN_MUSHROOM_LEVEL } from "../../../lib/mushroom-policy.mjs";
 import { COUNTRY_PACK_CATALOG } from "../../../lib/scan-plans";
 import { QUERY_CONTRACT_VERSION, DISCOVERY_SQL, UNDER_FIVE_SQL, discoveryWindow } from "../../../lib/query-contract.mjs";
+import { listOrder, cursorPredicate, searchPredicate } from "../../../lib/list-query.mjs";
 
 const MAX_PAGE_SIZE = 1_000;
 const EVENT_TYPE_IDS = [10, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25];
@@ -16,17 +17,18 @@ const SCAN_LOCATION_CATALOG = COUNTRY_PACK_CATALOG.flatMap((pack) => pack.cities
   }),
 ));
 
-type Cursor = { lastSeen: number; id: string };
+type Cursor = { lastSeen?: number; id: string; low?: number; value?: number; scope?: string; window?: {from:number;to:number} | null };
 
 function encodeCursor(value: Cursor) {
-  return btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function decodeCursor(value: string | null): Cursor | null {
-  if (!value || value.length > 300) return null;
+  if (!value || value.length > 4000) return null;
   try {
     const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-    const parsed = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")));
+    const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")), c => c.charCodeAt(0))));
+    if (parsed.scope && typeof parsed.scope === "string" && parsed.scope.length < 2500) return parsed as Cursor;
     const lastSeen = Number(parsed.lastSeen);
     const id = String(parsed.id ?? "");
     return Number.isInteger(lastSeen) && lastSeen >= 0 && id.length <= 200
@@ -104,6 +106,25 @@ export async function GET(request: Request) {
   const cursorValue = url.searchParams.get("cursor");
   const cursor = decodeCursor(cursorValue);
   if (cursorValue && !cursor) return noStoreJson({ error: "invalid cursor" }, 400);
+  let order, search, continuation;
+  const scope = JSON.stringify([levels,types,underFive,bbox,url.searchParams.get('sort')||'updated',
+    url.searchParams.get('prioritize_low')||'0',url.searchParams.get('q')||'',
+    url.searchParams.get('discovered_within_hours'),url.searchParams.get('discovered_from'),url.searchParams.get('discovered_to')]);
+  try {
+    order = listOrder(url.searchParams);
+    search = searchPredicate(url.searchParams.get('q'), SCAN_LOCATION_CATALOG);
+    if (cursor?.scope) {
+      if (cursor.scope !== scope) throw new Error('cursor query mismatch');
+      if (cursor.window) {
+        const frozen = new URLSearchParams({discovered_from:String(cursor.window.from),discovered_to:String(cursor.window.to)});
+        window = discoveryWindow(frozen, Math.floor(now/1000));
+      }
+      continuation = cursorPredicate(order, cursor);
+    } else {
+      if (cursor && (order.sort !== 'updated' || order.priority !== '0')) throw new Error('legacy cursor sort mismatch');
+      continuation = cursorPredicate(order, cursor ? {low:0,value:cursor.lastSeen,id:cursor.id} : null);
+    }
+  } catch (error) { return noStoreJson({error:String((error as Error).message)},400); }
   const limitValue = url.searchParams.get("limit");
   const paginated = Boolean(bbox || cursorValue || limitValue);
   const parsedLimit = Number.parseInt(limitValue ?? "500", 10);
@@ -153,19 +174,16 @@ export async function GET(request: Request) {
       bindings.push(bbox.west, bbox.east);
     }
   }
-  if (cursor) {
-    where.push("(last_seen < ? OR (last_seen = ? AND id < ?))");
-    bindings.push(cursor.lastSeen, cursor.lastSeen, cursor.id);
-  }
+  if (search.sql) { where.push(search.sql); bindings.push(...search.bindings); }
+  const countWhere = [...where], countBindings = [...bindings];
+  if (continuation.sql) { where.push(continuation.sql); bindings.push(...continuation.bindings); }
   const select = `SELECT id, lat, lng, level, type, cluster, cooldown,
       finish_ms, first_seen, last_seen, challenger_count,
       challenger_capacity, total_power, start_ms, giant_recheck_status,
-      giant_rechecked_at, discovered_by_agent_id
+      giant_rechecked_at, participants_verified_at, discovered_by_agent_id, ${order.select}
     FROM mushrooms WHERE ${where.join(" AND ")}
-    ORDER BY last_seen DESC, id DESC${paginated ? " LIMIT ?" : ""}`;
+    ORDER BY ${order.order}${paginated ? " LIMIT ?" : ""}`;
   const mushroomBindings = paginated ? [...bindings, limit + 1] : bindings;
-  const countWhere = where.filter((_, index) => !cursor || index !== where.length - 1);
-  const countBindings = cursor ? bindings.slice(0, -3) : bindings;
 
   const [mushrooms, countResult, agentsResult, targetsResult, scanner] = await Promise.all([
     db.prepare(select).bind(...mushroomBindings).all(),
@@ -226,14 +244,16 @@ export async function GET(request: Request) {
   ]));
   const rawRows = paginated ? mushrooms.results.slice(0, limit) : mushrooms.results;
   const publicMushrooms = rawRows.map((mushroom) => {
+    const visible = {...mushroom};
+    delete visible.query_low; delete visible.query_value;
     const firstSeen = Number(mushroom.first_seen ?? 0);
     const challengeStarted = Math.floor(Number(mushroom.start_ms ?? 0) / 1000);
     return {
-      ...mushroom,
+      ...visible,
       ...resolveScanLocation(Number(mushroom.lat), Number(mushroom.lng)),
       discovered_at: Math.max(firstSeen, challengeStarted),
       last_observed_at: Number(mushroom.last_seen ?? 0),
-      last_verified_at: Math.floor(Number(mushroom.giant_rechecked_at ?? 0) / 1000),
+      last_verified_at: Number(mushroom.participants_verified_at ?? 0),
       discovery_history_note: "legacy discovery timestamps may include earlier recheck refreshes",
       discovered_by: agentNames.get(String(mushroom.discovered_by_agent_id ?? "")) ?? "",
     };
@@ -245,6 +265,8 @@ export async function GET(request: Request) {
       version: QUERY_CONTRACT_VERSION, time_field: "discovered_at", time_unit: "unix_seconds",
       boundaries: "inclusive", window, under_five: underFive,
       requires_valid_capacity: underFive, levels, types, scope: bbox ? "bbox" : "world",
+      sort:order.sort, prioritize_low:order.priority === '1', search:search.q,
+      search_location_rule:"catalog neighbourhood within approximately 120km",
     },
     updated: Math.floor(now / 1000),
     count: Number(countResult?.count ?? publicMushrooms.length),
@@ -255,6 +277,7 @@ export async function GET(request: Request) {
       has_more: hasMore,
       next_cursor: last ? encodeCursor({
         lastSeen: Number(last.last_seen ?? 0), id: String(last.id ?? ""),
+        low:Number(last.query_low), value:Number(last.query_value), scope, window,
       }) : null,
     },
     status: {

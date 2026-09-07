@@ -215,6 +215,7 @@ upload_new() {
     return 0
   fi
   echo "[agent] upload failed http=$CODE"
+  DIAG_UPLOAD_FAILURES=$(( ${DIAG_UPLOAD_FAILURES:-0} + 1 ))
   return 1
 }
 
@@ -509,6 +510,7 @@ wait_for_map_refresh() {
 }
 
 restart_game_for_scan() {
+  DIAG_RESTARTS=$(( ${DIAG_RESTARTS:-0} + 1 ))
   RESTART_JOB="$1"
   RESTART_TOKEN="$2"
   echo "[scan] no new rows, restarting game session at current GPS"
@@ -538,8 +540,9 @@ send_scan_ack() {
   ACK_ROWS="$4"
   ACK_BYTES="$5"
   ACK_OK="$6"
+  ACK_EVIDENCE="${7:-}"
   auth_curl -X POST --data-binary '' \
-    "$SERVER_URL/api/agent/v2/ack?job_id=$ACK_JOB&target_id=$ACK_TARGET&lease=$ACK_LEASE&ok=$ACK_OK&rows=$ACK_ROWS&bytes=$ACK_BYTES" \
+    "$SERVER_URL/api/agent/v2/ack?job_id=$ACK_JOB&target_id=$ACK_TARGET&lease=$ACK_LEASE&ok=$ACK_OK&rows=$ACK_ROWS&bytes=$ACK_BYTES$ACK_EVIDENCE" \
     >/dev/null 2>&1
 }
 
@@ -550,7 +553,7 @@ retry_scan_ack() {
   IFS="$(printf '\t')"
   set -- $PENDING
   IFS="$OLD_IFS"
-  if send_scan_ack "$1" "$2" "$3" "$4" "$5" 1; then
+  if send_scan_ack "$1" "$2" "$3" "$4" "$5" 1 "${6:-}"; then
     rm -f "$SCAN_PENDING"
     echo "[scan] pending ACK completed job=$1 target=$2"
     return 0
@@ -586,6 +589,9 @@ execute_scan_task() {
   SCAN_TARGET_ID="$TASK_TARGET_ID"
   SCAN_LEASE="$TASK_LEASE"
   TASK_STARTED_AT="$(date +%s)"
+  DIAG_UPLOAD_FAILURES=0
+  DIAG_RESTARTS=0
+  REFRESH_SOURCE=unknown
 
   if refresh_local_pause; then
     echo "[scan] local pause requested before point=$TASK_INDEX"
@@ -633,6 +639,7 @@ execute_scan_task() {
     interruptible_wait "$TASK_COOLDOWN" "$JOB_ID" || return
   fi
   REFRESH_OK=0
+  DIAG_REFRESH_START="$(date +%s)"
   if [ "$MAP_REFRESH_EXPERIMENT" = "1" ]; then
     wait_for_map_refresh "$REFRESH_TOKEN" "$JOB_ID" \
       "$MAP_REFRESH_TIMEOUT_SECONDS" direct
@@ -642,6 +649,7 @@ execute_scan_task() {
   else
     interruptible_wait "$TASK_DWELL" "$JOB_ID" || return
   fi
+  DIAG_REFRESH_MS=$(( ($(date +%s) - DIAG_REFRESH_START) * 1000 ))
   upload_new
   AFTER_SIZE="$(file_size)"
   AFTER_LINES="$(useful_line_count)"
@@ -719,9 +727,13 @@ execute_scan_task() {
     fi
   fi
   interruptible_wait "$TASK_DELAY" "$JOB_ID" || return
-  printf '%s\t%s\t%s\t%s\t%s\n' \
-    "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" "$NEW_ROWS" "$NEW_BYTES" >"$SCAN_PENDING"
-  if send_scan_ack "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" "$NEW_ROWS" "$NEW_BYTES" 1; then
+  case "$REFRESH_SOURCE" in object|query) DIAG_SOURCE="$REFRESH_SOURCE" ;; *) DIAG_SOURCE=timeout ;; esac
+  [ "$MAP_REFRESH_EXPERIMENT" = "1" ] || DIAG_SOURCE=legacy
+  DIAG_SCAN_MS=$(( ($(date +%s) - TASK_STARTED_AT) * 1000 ))
+  DIAG_QUERY="&evidence_version=1&refresh_source=$DIAG_SOURCE&scan_ms=$DIAG_SCAN_MS&refresh_ms=$DIAG_REFRESH_MS&restarts=$DIAG_RESTARTS&upload_failures=$DIAG_UPLOAD_FAILURES"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" "$NEW_ROWS" "$NEW_BYTES" "$DIAG_QUERY" >"$SCAN_PENDING"
+  if send_scan_ack "$JOB_ID" "$TASK_TARGET_ID" "$TASK_LEASE" "$NEW_ROWS" "$NEW_BYTES" 1 "$DIAG_QUERY"; then
     rm -f "$SCAN_PENDING"
     TASK_FINISHED_AT="$(date +%s)"
     TASK_ELAPSED=$((TASK_FINISHED_AT - TASK_STARTED_AT))
