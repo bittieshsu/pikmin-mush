@@ -180,7 +180,7 @@ export async function GET(request: Request) {
   const select = `SELECT id, lat, lng, level, type, cluster, cooldown,
       finish_ms, first_seen, last_seen, challenger_count,
       challenger_capacity, total_power, start_ms, giant_recheck_status,
-      giant_rechecked_at, discovered_by_agent_id, ${order.select}
+      giant_rechecked_at, participants_verified_at, discovered_by_agent_id, ${order.select}
     FROM mushrooms WHERE ${where.join(" AND ")}
     ORDER BY ${order.order}${paginated ? " LIMIT ?" : ""}`;
   const mushroomBindings = paginated ? [...bindings, limit + 1] : bindings;
@@ -253,7 +253,7 @@ export async function GET(request: Request) {
       ...resolveScanLocation(Number(mushroom.lat), Number(mushroom.lng)),
       discovered_at: Math.max(firstSeen, challengeStarted),
       last_observed_at: Number(mushroom.last_seen ?? 0),
-      last_verified_at: Math.floor(Number(mushroom.giant_rechecked_at ?? 0) / 1000),
+      last_verified_at: Number(mushroom.participants_verified_at ?? 0),
       discovery_history_note: "legacy discovery timestamps may include earlier recheck refreshes",
       discovered_by: agentNames.get(String(mushroom.discovered_by_agent_id ?? "")) ?? "",
     };

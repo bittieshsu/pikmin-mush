@@ -606,6 +606,7 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
       cooldown=excluded.cooldown,
       finish_ms=excluded.finish_ms,
       last_seen=excluded.last_seen,
+      participants_verified_at=CASE WHEN mushrooms.start_ms<>excluded.start_ms OR mushrooms.level<>excluded.level THEN 0 ELSE mushrooms.participants_verified_at END,
       challenger_count=excluded.challenger_count,
       challenger_capacity=excluded.challenger_capacity,
       total_power=excluded.total_power,

@@ -12,6 +12,7 @@ export const mushrooms = sqliteTable("mushrooms", {
   firstSeen: integer("first_seen").notNull(),
   discoveredByAgentId: text("discovered_by_agent_id").notNull().default(""),
   lastSeen: integer("last_seen").notNull(),
+  participantsVerifiedAt: integer("participants_verified_at").notNull().default(0),
   challengerCount: integer("challenger_count").notNull().default(0),
   challengerCapacity: integer("challenger_capacity").notNull().default(0),
   totalPower: real("total_power").notNull().default(0),

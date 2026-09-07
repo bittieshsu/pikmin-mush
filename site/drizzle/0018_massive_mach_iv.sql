@@ -1,0 +1,1 @@
+ALTER TABLE `mushrooms` ADD `participants_verified_at` integer DEFAULT 0 NOT NULL;

@@ -581,6 +581,18 @@ export async function completeTask(
         status, input.rows, status, now, agent.id),
   ]);
   const giantRecheckResult = await finalizeGiantRecheck(target, status, now);
+  if (status === 'completed' && target.verification_kind && target.verification_mushroom_id) {
+    // Require ingestion attributable to this exact verification lease and the
+    // current challenge, not merely a newer heartbeat or a different nearby POI.
+    await db.prepare(`UPDATE mushrooms SET participants_verified_at=COALESCE((
+      SELECT MAX(o.received_at) FROM mushroom_observations o
+      JOIN mushroom_challenges c ON c.key=o.challenge_key
+      WHERE o.target_id=? AND c.location_id=mushrooms.id AND c.start_ms=mushrooms.start_ms
+        AND o.level=mushrooms.level AND o.type=mushrooms.type
+        AND o.received_at>=? AND o.received_at<=?
+    ),participants_verified_at) WHERE id=?`)
+      .bind(target.id,Math.ceil(Number(target.leased_at)/1000),Math.floor(now/1000),target.verification_mushroom_id).run();
+  }
   const durationMs = target.leased_at ? Math.max(0, now - Number(target.leased_at)) : 0;
   await recordAgentEvent({
     agentId: agent.id,
