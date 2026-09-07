@@ -87,6 +87,8 @@ type SoakReport = {
     captured_rows: number;
     average_target_ms: number;
     health: Agent["health"];
+    diagnostics?: {measured_targets:number;average_refresh_ms:number;restarts:number;upload_failures:number;query_only_targets:number} | null;
+    observations?: {observed_challenges:number;new_challenges:number} | null;
   }>;
 };
 
@@ -687,6 +689,8 @@ export default function AdminClient({
               <div><strong>{agent.name}</strong><span>{agent.health.status}</span></div>
               <p>{agent.health.message}</p>
               <small>心跳覆蓋 {agent.continuity_percent}%・完成 {agent.completed_targets}・無資料 {agent.no_data_targets}・失敗 {agent.failed_targets}</small>
+              <p>{agent.diagnostics ? `診斷 ${agent.diagnostics.measured_targets} 點・首次刷新平均 ${Math.round(agent.diagnostics.average_refresh_ms/1000)} 秒・復原重啟 ${agent.diagnostics.restarts} 次・上傳失敗 ${agent.diagnostics.upload_failures} 次・僅查詢回應 ${agent.diagnostics.query_only_targets} 點` : '尚未收到新版手機診斷；+0 不代表空點'}</p>
+              <small>{agent.observations ? `期間觀測 ${agent.observations.observed_challenges} 個不同挑戰・首次入庫 ${agent.observations.new_challenges} 個（依接收時間，不等同現場新生蘑菇）` : '尚無觀測歷史'}</small>
             </article>
           ))}
         </div>

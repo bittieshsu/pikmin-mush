@@ -178,7 +178,7 @@ export async function buildSoakReport(hours = 24) {
   const now = Date.now();
   const start = now - boundedHours * 60 * 60_000;
   const db = runtime().DB;
-  const [agents, events, queue, activeJob, outcomes] = await Promise.all([
+  const [agents, events, queue, activeJob, outcomes, diagnostics, observations] = await Promise.all([
     db.prepare("SELECT * FROM scan_agents ORDER BY enabled DESC, id").all<AgentHealthRow & {
       id: string; display_name: string;
     }>(),
@@ -203,6 +203,19 @@ export async function buildSoakReport(hours = 24) {
         ELSE 'legacy_unclassified' END AS outcome, COUNT(*) AS count
       FROM scan_agent_events WHERE at>=? AND event_type IN ('target_completed','target_failed')
       GROUP BY agent_id,outcome`).bind(start).all(),
+    db.prepare(`WITH evidence AS (SELECT agent_id,
+      json_extract(CASE WHEN json_valid(detail) THEN detail ELSE '{}' END,'$.evidence') AS e
+      FROM scan_agent_events WHERE at>=? AND event_type IN ('target_completed','target_failed'))
+      SELECT agent_id,COUNT(*) AS measured_targets,
+        AVG(json_extract(e,'$.refresh_ms')) AS average_refresh_ms,
+        SUM(json_extract(e,'$.restarts')) AS restarts,
+        SUM(json_extract(e,'$.upload_failures')) AS upload_failures,
+        SUM(CASE WHEN json_extract(e,'$.refresh_source')='query' THEN 1 ELSE 0 END) AS query_only_targets
+      FROM evidence WHERE json_extract(e,'$.version')=1 GROUP BY agent_id`).bind(start).all(),
+    db.prepare(`SELECT o.agent_id, COUNT(DISTINCT o.challenge_key) AS observed_challenges,
+      COUNT(DISTINCT CASE WHEN c.first_recorded_at=o.received_at THEN o.challenge_key END) AS new_challenges
+      FROM mushroom_observations o JOIN mushroom_challenges c ON c.key=o.challenge_key
+      WHERE o.received_at>=? GROUP BY o.agent_id`).bind(Math.floor(start/1000)).all(),
   ]);
   const byAgent = new Map(events.results.map((row) => [row.agent_id, row]));
   const reports = agents.results.map((agent) => {
@@ -214,6 +227,8 @@ export async function buildSoakReport(hours = 24) {
     return {
       id: agent.id,
       name: agent.display_name,
+      diagnostics: diagnostics.results.find(row=>row.agent_id===agent.id) ?? null,
+      observations: observations.results.find(row=>row.agent_id===agent.id) ?? null,
       health: agentHealth(agent, now),
       heartbeat_samples: heartbeatSamples,
       continuity_percent: Math.min(100, Math.round(heartbeatSamples / expectedSamples * 100)),

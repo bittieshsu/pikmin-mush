@@ -530,6 +530,7 @@ export async function completeTask(
     bytes: number;
     message: string;
     outcome?: string;
+    evidence?: Record<string, unknown> | null;
   },
 ) {
   const db = runtime().DB;
@@ -585,7 +586,7 @@ export async function completeTask(
     agentId: agent.id,
     type: input.ok ? "target_completed" : "target_failed",
     at: now, jobId: job.id, targetId: target.id, rows: input.rows,
-    bytes: input.bytes, durationMs, detail: JSON.stringify({outcome, message:input.message.slice(0,160)}),
+    bytes: input.bytes, durationMs, detail: JSON.stringify({outcome, evidence:input.evidence ?? null, message:input.message.slice(0,160)}),
   });
   if (input.ok && input.rows === 0) {
     await recordAgentEvent({
