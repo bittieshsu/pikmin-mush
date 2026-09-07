@@ -1,0 +1,26 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';import {Script} from 'node:vm';import {DatabaseSync} from 'node:sqlite';import ts from 'typescript';
+import * as query from '../lib/query-contract.mjs';import * as list from '../lib/list-query.mjs';
+test('real API SQL preserves global counts, Chinese search and sorted cursor continuity',async()=>{
+ const db=new DatabaseSync(':memory:');
+ db.exec(`CREATE TABLE mushrooms(id TEXT,lat REAL,lng REAL,level INTEGER,type INTEGER,cluster TEXT,cooldown INTEGER,finish_ms INTEGER,first_seen INTEGER,last_seen INTEGER,challenger_count INTEGER,challenger_capacity INTEGER,total_power REAL,start_ms INTEGER,giant_recheck_status TEXT,giant_rechecked_at INTEGER,participants_verified_at INTEGER,discovered_by_agent_id TEXT,mushroom_status TEXT)`);
+ const now=Math.floor(Date.now()/1000);const insert=db.prepare('INSERT INTO mushrooms VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+ for(let i=0;i<23;i++)insert.run('poi'+i,25,121,3,2,'',0,0,now-100-i,now-i,i%6,35,0,0,'',0,0,'a','active');
+ const adapter={prepare(sql){let binds=[];return {bind(...b){binds=b;return this},async all(){return {results:sql.includes('FROM scan_agents')||sql.includes('FROM scan_targets')?[]:db.prepare(sql).all(...binds)}},async first(){return sql.includes('FROM scanner_status')?null:db.prepare(sql).get(...binds)}}}};
+ const exports={};
+ const source=readFileSync(new URL('../app/api/mushrooms/route.ts',import.meta.url),'utf8');
+ new Script(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText).runInNewContext({exports,URL,URLSearchParams,TextEncoder,TextDecoder,btoa,atob,Date,require(p){
+  if(p.endsWith('/cloud'))return {ensureSchema:async()=>{},runMushroomRetention:async()=>({}),runtime:()=>({DB:adapter}),noStoreJson:(data,status=200)=>Response.json(data,{status})};
+  if(p.endsWith('/fleet'))return {publicAgent:()=>({})};
+  if(p.endsWith('/mushroom-policy.mjs'))return {MIN_MUSHROOM_LEVEL:2};
+  if(p.endsWith('/scan-plans'))return {COUNTRY_PACK_CATALOG:[{name:'台灣',cities:[['台北',25,121]]}]};
+  if(p.endsWith('/query-contract.mjs'))return query;if(p.endsWith('/list-query.mjs'))return list;throw Error(p);
+ }});
+ const params=new URLSearchParams({levels:'3',types:'2',under_five:'1',sort:'discovered',limit:'4',q:'台北',discovered_within_hours:'6'});
+ let cursor='',rows=[],count=0;
+ do{if(cursor)params.set('cursor',cursor);const response=await exports.GET(new Request('https://example.test/api/mushrooms?'+params));assert.equal(response.status,200);const d=await response.json();count=d.count;rows.push(...d.mushrooms);cursor=d.pagination.next_cursor||'';}while(cursor);
+ assert.equal(rows.length,20);assert.equal(count,20);assert.equal(new Set(rows.map(r=>r.id)).size,20);
+ assert.ok(rows.every((r,i)=>r.challenger_count<5&&(!i||rows[i-1].discovered_at<=r.discovered_at)));
+ params.set('q','東京');const mismatch=await exports.GET(new Request('https://example.test/api/mushrooms?'+params));assert.equal(mismatch.status,400);
+ db.close();
+});
