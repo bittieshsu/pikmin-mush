@@ -431,28 +431,28 @@ void il2cpp_dump(const char *outDir) {
 #include <ctime>
 #include <map>
 
-// Pikmin Bloom v151.0 / versionCode 1786062771.
+// Pikmin Bloom v152.0 / versionCode 1787540739 (Leo binary SHA256 verified).
 // These RVAs and prologue signatures are version-locked. Refuse to install any hook
 // when the loaded libil2cpp does not match, so a future game update fails closed
 // instead of patching an unrelated function.
-#define TARGET_PIKMIN_VERSION "151.0"
-#define TARGET_PIKMIN_VERSION_CODE 1786062771
-// 151.0 retains the MapManager registration callback that receives the
+#define TARGET_PIKMIN_VERSION "152.0"
+#define TARGET_PIKMIN_VERSION_CODE 1787540739
+// 152.0 retains the MapManager registration callback that receives the
 // MapPoiBlocker instances used by the scanner.  MapObjectManager has a distinct
 // two-argument UI registration method, but it is not the callback that
 // materializes the live mushroom objects on the map.
-#define RVA_RegisterMapObject 0xCE1B374
-#define RVA_LocationController_Update 0x715877C
-#define RVA_SetOverride 0x71593B0
-#define RVA_MapQueryManager_OnMapQueryResponse 0xCBABD3C
+#define RVA_RegisterMapObject 0xCE60E20
+#define RVA_LocationController_Update 0x71B5C34
+#define RVA_SetOverride 0x71B6794
+#define RVA_MapQueryManager_OnMapQueryResponse 0xCBF17E8
 
 static const uint8_t SIG_RegisterMapObject[] = {
     0xFE, 0x67, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
     0xF6, 0x57, 0x02, 0xA9, 0xF4, 0x4F, 0x03, 0xA9
 };
 static const uint8_t SIG_LocationController_Update[] = {
-    0xFF, 0x83, 0x03, 0xD1, 0xE8, 0x4B, 0x00, 0xFD,
-    0xFE, 0x67, 0x0A, 0xA9, 0xF8, 0x5F, 0x0B, 0xA9
+    0xFF, 0x43, 0x03, 0xD1, 0xE8, 0x4B, 0x00, 0xFD,
+    0xFE, 0x5F, 0x0A, 0xA9, 0xF6, 0x57, 0x0B, 0xA9
 };
 static const uint8_t SIG_SetOverride[] = {
     0xFF, 0xC3, 0x01, 0xD1, 0xFE, 0x23, 0x00, 0xF9,
