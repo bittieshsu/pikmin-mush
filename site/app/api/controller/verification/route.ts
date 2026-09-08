@@ -173,7 +173,17 @@ export async function GET(request: Request) {
       t.verification_mushroom_id AS id, t.status, t.leased_at, t.completed_at,
       t.verification_kind, t.verification_result,
       m.level,
-      m.challenger_count, m.challenger_capacity, m.last_seen
+      m.challenger_count, m.challenger_capacity, m.last_seen, m.finish_ms,
+      (SELECT MAX(o.received_at) FROM mushroom_observations o
+        JOIN mushroom_challenges c ON c.key=o.challenge_key
+        WHERE o.target_id=t.id AND o.agent_id=t.completed_agent_id
+          AND c.location_id=m.id AND c.start_ms=m.start_ms
+          AND o.level=m.level AND o.type=m.type
+          AND o.challenger_count=m.challenger_count
+          AND o.challenger_capacity=m.challenger_capacity
+          AND o.received_at>=CAST((t.leased_at+999)/1000 AS INTEGER)
+          AND o.received_at<=CAST(t.completed_at/1000 AS INTEGER)
+      ) AS verified_receipt
     FROM scan_targets t
     LEFT JOIN mushrooms m ON m.id=t.verification_mushroom_id
     WHERE t.verification_batch=? AND t.verification_kind IN ('candidate','giant-recheck')
@@ -188,11 +198,15 @@ export async function GET(request: Request) {
       challenger_count: number | null;
       challenger_capacity: number | null;
       last_seen: number | null;
+      finish_ms: number | null;
+      verified_receipt: number | null;
     }>();
   if (!rows.results.length) return noStoreJson({ error: "batch not found" }, 404);
   const candidates = rows.results.map((row) => {
-    const refreshed = row.status === "completed" && row.last_seen != null &&
-      Number(row.last_seen) * 1000 >= Number(row.leased_at);
+    // A nearby or other-agent upload must never count as this target's recheck.
+    // Matching current values also rejects a later, unverified participant change.
+    const refreshed = row.status === "completed" && row.verified_receipt != null &&
+      Number(row.leased_at)>0 && Number(row.completed_at)>=Number(row.leased_at);
     const count = Number(row.challenger_count ?? -1);
     const capacity = Number(row.challenger_capacity ?? 0);
     return {
@@ -203,8 +217,10 @@ export async function GET(request: Request) {
       challenger_capacity: capacity,
       level: Number(row.level ?? 0),
       result: row.verification_result || "pending",
-      eligible: refreshed && capacity > 0 && count >= 0 && count < 5 &&
-        (row.verification_kind !== "giant-recheck" || Number(row.level) === 4),
+      verified_at: refreshed ? Number(row.verified_receipt) * 1000 : null,
+      eligible: refreshed && capacity > 0 && count >= 0 && count < 5 && count<=capacity &&
+        (Number(row.finish_ms)===0 || Number(row.finish_ms)>Date.now()) &&
+        Number(row.level) === (row.verification_kind === "giant-recheck" ? 4 : 3),
     };
   });
   return noStoreJson({
