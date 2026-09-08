@@ -1,4 +1,8 @@
 .page {
+  --admin-green: #326b49;
+  --admin-surface: #fff;
+  --admin-muted: #596d60;
+  --admin-line: #d9e3d6;
   min-height: 100vh;
   padding: 28px;
   color: #243023;
@@ -483,4 +487,104 @@
 @media (max-width: 430px) {
   .healthGrid, .choiceGrid, .inputGrid, .agentGrid, .metricSummary, .metricAgents { grid-template-columns: 1fr; }
   .packDisclosure > summary small { white-space: normal; }
+}
+
+/* Mobile-first working surface. Keep existing controls, change their hierarchy. */
+.reportView { max-width:820px; margin:auto; display:grid; gap:16px; }
+.reportView h3 { font-size:18px; margin:0 0 4px; }
+.reportControls { display:grid; gap:12px; }
+.reportControls label { display:grid; gap:6px; font-size:14px; }
+.reportControls select { padding:10px; width:100%; min-width:0; border:1px solid var(--admin-line); border-radius:10px; background:#fff; color:#243b2c; }
+.reportControls > div { display:flex; gap:8px; }
+.reportControls button { flex:1; }
+.reportControls button[aria-pressed=true] { background:#e5f0df; color:#255138; }
+.reportTimeline { list-style:none; margin:18px 0; padding:0; counter-reset:stage; }
+.reportTimeline li { position:relative; padding:12px 0 12px 34px; display:flex; gap:8px; justify-content:space-between; flex-wrap:wrap; border-bottom:1px solid var(--admin-line); }
+.reportTimeline li::before { counter-increment:stage; content:counter(stage); position:absolute; left:0; top:12px; width:22px; height:22px; border-radius:50%; background:#edf3e8; color:#326b49; text-align:center; font-size:14px; }
+.reportTimeline li strong { font-size:14px; }
+.reportTimeline small { flex-basis:100%; color:var(--admin-muted); font-size:13px; }
+.reasonDisclosure summary { padding:12px 0; cursor:pointer; }
+.reasonRow { display:flex; gap:10px; justify-content:space-between; margin:10px 0; }
+.reportPagination { display:flex; justify-content:space-between; gap:8px; align-items:center; margin:16px 0; }
+.reportPagination button:disabled { opacity:.5; cursor:default; }
+.auditRow { font-size:14px; overflow-wrap:anywhere; border-bottom:1px solid var(--admin-line); padding-bottom:10px; }
+.reportView .caption { overflow-wrap:anywhere; }
+.reportView details > details > summary { padding:12px 0; cursor:pointer; font-size:14px; }
+.page { padding:20px 24px 32px 208px; font-size:16px; }
+.header { align-items:center; margin-bottom:18px; }
+.header h1 { font-size:24px; letter-spacing:0; line-height:1.3; }
+.header p { font-size:13px; margin:3px 0; }
+.kicker { display:none; }
+.workspace { max-width:1100px; margin:0 auto; }
+.appNav { position:fixed; left:20px; top:28px; width:164px; display:grid; gap:8px; z-index:10; }
+.appNav button { display:flex; gap:12px; align-items:center; padding:14px; border:0; border-radius:12px; background:transparent; color:#47604b; font:inherit; cursor:pointer; }
+.appNav button[aria-pressed=true] { color:#255138; background:#dfedda; font-weight:700; }
+.appNav button span { font-size:22px; line-height:1; }
+.overview { max-width:940px; margin:auto; display:grid; gap:14px; }
+.overviewHeading { display:flex; gap:12px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+.overviewHeading h2 { margin:0; font-size:18px; }
+.overviewHeading > span { color:var(--admin-muted); font-size:13px; }
+.page button { min-height:44px; }
+.overviewHeading button, .reportControls button, .reportPagination button { padding:9px 12px; border:1px solid var(--admin-line); background:#fff; border-radius:10px; color:#326b49; cursor:pointer; font:inherit; }
+.overviewStats { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.overviewStats article { background:#fff; padding:16px; border-radius:16px; }
+.overviewStats span { display:block; color:var(--admin-muted); font-size:14px; }
+.overviewStats strong { display:block; font-size:28px; margin-top:5px; }
+.overviewStats small { font-size:14px; font-weight:400; }
+.overviewPanel { padding:18px; border-radius:16px; background:#fff; }
+.chartRow { display:grid; grid-template-columns:minmax(64px,1fr) minmax(70px,3fr) minmax(36px,auto); gap:12px; align-items:center; margin:15px 0; font-variant-numeric:tabular-nums; }
+.chartRow > span { overflow-wrap:anywhere; }
+.chartRow > span:last-child { text-align:right; }
+.chartTrack { height:10px; border-radius:5px; background:#edf3e8; overflow:hidden; }
+.chartTrack i { display:block; height:100%; background:#326b49; border-radius:5px; }
+.caption { color:var(--admin-muted); font-size:13px; line-height:1.6; margin:8px 0 0; }
+.attention { display:block; text-align:left; background:#fff1d8; color:#7d500c; border:0; padding:12px; border-radius:12px; font:inherit; cursor:pointer; }
+.compactAgent { padding:12px 0; border-bottom:1px solid var(--admin-line); }
+.compactAgent:last-child { border:0; padding-bottom:0; }
+.compactAgent > div { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.compactAgent p { margin:5px 0 0; font-size:14px; color:var(--admin-muted); }
+.compactAgent span, .agentDisclosure summary > span { font-size:14px; color:#326b49; }
+.compactAgent span[data-attention=true], .agentDisclosure span[data-attention=true] { color:#865513; }
+.disclosure { margin:0 0 14px; background:#fff; border-radius:16px; border:1px solid var(--admin-line); padding:0 16px; min-width:0; }
+.disclosure > summary { cursor:pointer; padding:16px 0; font-size:16px; font-weight:600; min-height:48px; }
+.disclosure > .metricsPanel, .disclosure > .panel { border:0; box-shadow:none; padding:8px 0 16px; margin:0; }
+.disclosure > p { font-size:14px; color:var(--admin-muted); }
+.columns { display:block; }
+.agentGrid { grid-template-columns:1fr; }
+.agentDisclosure { border-bottom:1px solid var(--admin-line); padding:0 4px; min-width:0; }
+.agentDisclosure > summary { padding:15px 0; cursor:pointer; }
+.agentDisclosure summary > span { float:right; margin-left:8px; }
+.agentDisclosure summary > small { display:block; margin:5px 0 0 18px; color:var(--admin-muted); font-size:14px; }
+.agentBody { display:grid; gap:8px; padding:0 0 16px; font-size:14px; }
+.agentBody p { margin:3px 0; }
+.agentBody code, .credential code { overflow-wrap:anywhere; white-space:pre-wrap; }
+.agentBody small { font-size:13px; }
+.page .logPanel, .page .copyAuditPanel { min-height:0; }
+.page .logs { max-height:420px; }
+.page .panelTitle span { display:none; }
+.page .panelTitle h2 { font-size:18px; }
+.page .metricSummary span, .page .copyAnalytics p, .page .copyAnalytics code { font-size:13px; }
+.page .inputGrid span, .page .profileHint, .page .packGroup h3 { font-size:14px; }
+.page input, .page select { font:inherit; max-width:100%; }
+.page .notice { margin:0 0 14px; padding:12px; background:#fff1d8; border-radius:12px; overflow-wrap:anywhere; }
+.page .healthGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.page .header nav span { max-width:240px; overflow-wrap:anywhere; }
+@media (max-width:760px) {
+  .page { padding:14px 12px calc(94px + env(safe-area-inset-bottom)); }
+  .page .header { flex-direction:row; align-items:center; gap:12px; flex-wrap:wrap; }
+  .page .header h1 { font-size:21px; }
+  .page .header nav { font-size:13px; gap:10px; }
+  .page .header nav span { display:none; }
+  .appNav { inset:auto 0 0; width:auto; grid-template-columns:repeat(4,1fr); gap:4px; padding:6px 8px calc(6px + env(safe-area-inset-bottom)); border-top:1px solid var(--admin-line); background:#fff; }
+  .appNav button { flex-direction:column; justify-content:center; gap:5px; padding:8px 4px; font-size:13px; }
+  .overview { gap:12px; }
+  .overviewPanel { padding:14px; }
+  .overviewHeading h2 { font-size:16px; }
+  .overviewStats article { padding:14px; }
+  .page .agentGrid { grid-template-columns:1fr; }
+  .page .fleetPanel { padding:14px; }
+  .page .healthGrid article { padding:12px; }
+  .page .copyAuditRow { grid-template-columns:1fr; font-size:14px; }
+  .page .copyAuditRow code, .page .copyAuditRow time { font-size:13px; }
+  .page .metricSummary { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
