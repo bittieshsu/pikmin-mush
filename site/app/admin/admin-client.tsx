@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ReportAudit from './report-audit';
+import {useVisiblePolling} from './use-visible-polling';
+import {ADMIN_PAGES, agentState, needsAttention, ageLabel} from '../../lib/admin-view.mjs';
 import { COUNTRY_PACK_LABELS } from "../../lib/scan-plans";
 import styles from "./admin.module.css";
 
@@ -34,6 +36,8 @@ type Agent = {
   current_location: [number, number] | null;
   current_job_id: number | null;
   current_target_id: number | null;
+  current_country?: string;
+  current_city?: string;
   uploaded_rows: number;
   uploaded_bytes: number;
   region_tags: string[];
@@ -216,7 +220,7 @@ function formatTime(value: number) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("zh-TW", {
     month: "2-digit", day: "2-digit", hour: "2-digit",
-    minute: "2-digit", second: "2-digit", hour12: false,
+    minute: "2-digit", second: "2-digit", hour12: false, timeZone:'Asia/Taipei',
   }).format(new Date(value));
 }
 
@@ -228,9 +232,16 @@ export default function AdminClient({
   signOutPath: string;
 }) {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [page, setPage] = useState('overview');
+  const [showSoak, setShowSoak] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
+  const [showEfficiency, setShowEfficiency] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [overviewMetrics, setOverviewMetrics] = useState<SoakReport|null>(null);
+  const [overviewError, setOverviewError] = useState('');
   const [mode, setMode] = useState<"auto" | "custom">("auto");
   const [scanProfile, setScanProfile] = useState<"global" | "precision">("global");
-  const [packs, setPacks] = useState<string[]>(["日本"]);
+  const [packs, setPacks] = useState<string[]>([]);
   const [radiusKm, setRadiusKm] = useState(8);
   const [gridStepM, setGridStepM] = useState(1000);
   const [dwellS, setDwellS] = useState(8);
@@ -258,19 +269,25 @@ export default function AdminClient({
   const [jobReportError, setJobReportError] = useState("");
   const [copyAudit, setCopyAudit] = useState<CopyAudit | null>(null);
   const [copyAuditError, setCopyAuditError] = useState("");
+  const changePage=(next:string)=>{setShowSoak(false);setShowUsage(false);setShowEfficiency(false);setShowLogs(false);setPage(next);};
+  const dashboardRequest=useRef(0);
+  const includeLogs=page==='fleet'&&showLogs;
 
   const refresh = useCallback(async () => {
+    const version=++dashboardRequest.current;
     try {
-      const response = await fetch("/api/admin/scans", { cache: "no-store" });
+      const response = await fetch(`/api/admin/scans?logs=${includeLogs?'1':'0'}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setDashboard(await response.json());
+      const data=await response.json();if(version!==dashboardRequest.current)return;
+      setDashboard(data);
       setDashboardLoadedAt(Date.now());
       setDashboardError("");
     } catch (error) {
+      if(version!==dashboardRequest.current)return;
       setDashboardError(`後台狀態暫時無法更新（${error instanceof Error ? error.message : "連線失敗"}）`);
       throw error;
     }
-  }, []);
+  }, [includeLogs]);
 
   const refreshMetrics = useCallback(async () => {
     try {
@@ -283,6 +300,14 @@ export default function AdminClient({
       throw error;
     }
   }, []);
+
+  const refreshOverview = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/metrics?hours=6', {cache:'no-store'});
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      setOverviewMetrics(await response.json());setOverviewError('');
+    }catch{setOverviewError('產出暫時無法更新；保留上次資料，不以零筆代替。');}
+  },[]);
 
   const refreshJobReport = useCallback(async (jobId: number) => {
     try {
@@ -306,52 +331,15 @@ export default function AdminClient({
     }
   }, []);
 
-  useEffect(() => {
-    const initial = window.setTimeout(() => {
-      refresh().catch(() => undefined);
-    }, 0);
-    const timer = window.setInterval(() => {
-      refresh().catch(() => undefined);
-    }, 3000);
-    return () => {
-      window.clearTimeout(initial);
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
-
-  useEffect(() => {
-    const initial = window.setTimeout(() => {
-      refreshMetrics().catch(() => undefined);
-    }, 0);
-    const timer = window.setInterval(() => {
-      refreshMetrics().catch(() => undefined);
-    }, 60_000);
-    return () => {
-      window.clearTimeout(initial);
-      window.clearInterval(timer);
-    };
-  }, [refreshMetrics]);
-
-  useEffect(() => {
-    const initial = window.setTimeout(() => { refreshCopyAudit(); }, 0);
-    const timer = window.setInterval(refreshCopyAudit, 60_000);
-    return () => { window.clearTimeout(initial); window.clearInterval(timer); };
-  }, [refreshCopyAudit]);
-
-  useEffect(() => {
-    const jobId = dashboard?.job?.id;
-    if (!jobId) {
-      return;
-    }
-    const initial = window.setTimeout(() => {
-      refreshJobReport(jobId);
-    }, 0);
-    const timer = window.setInterval(() => refreshJobReport(jobId), 15_000);
-    return () => {
-      window.clearTimeout(initial);
-      window.clearInterval(timer);
-    };
-  }, [dashboard?.job?.id, refreshJobReport]);
+  const currentJobId=dashboard?.job?.id;
+  const refreshCurrentJob = useCallback(async()=>{
+    if(currentJobId)await refreshJobReport(currentJobId);
+  },[currentJobId,refreshJobReport]);
+  useVisiblePolling(refresh,10_000,page==='overview'||page==='fleet');
+  useVisiblePolling(refreshOverview,60_000,page==='overview');
+  useVisiblePolling(refreshMetrics,60_000,page==='more'&&showSoak);
+  useVisiblePolling(refreshCopyAudit,60_000,page==='more'&&showUsage);
+  useVisiblePolling(refreshCurrentJob,30_000,page==='more'&&showEfficiency);
 
   const estimate = useMemo(() => {
     const squarePoints = (diameterKm: number) =>
@@ -382,6 +370,7 @@ export default function AdminClient({
   };
 
   const start = async () => {
+    if(!window.confirm(`建立 ${estimate.cities} 城市、約 ${estimate.points.toLocaleString()} 點的掃描工作？每日輪替設定不會因此停用。`))return;
     setBusy(true);
     setNotice("");
     try {
@@ -406,6 +395,7 @@ export default function AdminClient({
 
   const action = async (name: "pause" | "resume" | "stop") => {
     if (!dashboard?.job) return;
+    if(!window.confirm(`${name==='stop'?'停止':name==='pause'?'暫停':'恢復'}工作 #${dashboard.job.id}？此操作影響該工作的所有執行節點。`))return;
     setBusy(true);
     setNotice("");
     try {
@@ -425,6 +415,7 @@ export default function AdminClient({
   };
 
   const redeployFleet = async () => {
+    if(!window.confirm('立即重新分配全機隊？目前未完成工作會中止，所有 Agent 重新領取新區域；原定換區時間不變。'))return;
     setBusy(true);
     setNotice("");
     try {
@@ -468,6 +459,7 @@ export default function AdminClient({
 
   const agentAction = async (agent: Agent, action: "enable" | "disable" | "pause" | "resume" |
     "rotate-token" | "revoke-old-token" | "rename" | "delete", displayName?: string) => {
+    if(['pause','disable','enable','resume'].includes(action)&&!window.confirm(`${agent.name}：${({pause:'暫停掃描',disable:'停用節點並釋放工作',enable:'啟用節點',resume:'恢復掃描'} as Record<string,string>)[action]}？`))return;
     setBusy(true);
     setNotice("");
     try {
@@ -554,8 +546,8 @@ export default function AdminClient({
       <header className={styles.header}>
         <div>
           <span className={styles.kicker}>PIKMIN MUSHROOM CONTROL</span>
-          <h1>蘑菇掃描後台</h1>
-          <p>雲端排程、手機執行，不需要 Windows 持續開機。</p>
+          <h1>探險隊後台</h1>
+          <p>管理員 · Asia/Taipei</p>
         </div>
         <nav>
           <Link href="/">公開地圖</Link>
@@ -563,6 +555,13 @@ export default function AdminClient({
           <span>{displayName}</span>
         </nav>
       </header>
+
+      <nav className={styles.appNav} aria-label="後台導覽">
+        {ADMIN_PAGES.map(item=><button key={item.id} type="button" aria-pressed={page===item.id}
+          onClick={()=>changePage(item.id)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}
+      </nav>
+      <div className={styles.workspace}>
+      {notice&&<p className={styles.notice} role="status">{notice}</p>}
 
       {dashboardError && (
         <div className={styles.dataWarning} role="status">
@@ -573,7 +572,37 @@ export default function AdminClient({
         </div>
       )}
 
-      <section className={styles.healthGrid}>
+      {page==='overview'&&<div className={styles.overview}>
+        <div className={styles.overviewHeading}><h2>機隊總覽</h2><button type="button" onClick={()=>{void refresh().catch(()=>{});void refreshOverview();}}>重新整理</button></div>
+        <div className={styles.overviewStats}>
+          <article><span>裝置在線</span><strong>{dashboard?`${dashboard.fleet.online} / ${dashboard.fleet.total}`:'—'}<small> 台</small></strong></article>
+          <article><span>需要留意</span><strong>{dashboard?dashboard.agents.filter(needsAttention).length:'—'}<small> 台</small></strong></article>
+        </div>
+        {dashboard?.agents.filter(needsAttention).map(agent=><button className={styles.attention} type="button" key={agent.id} onClick={()=>setPage('fleet')}>△ {agent.name}：{agent.health.message} →</button>)}
+        <section className={styles.overviewPanel} aria-label="Agent 產出比較">
+          <div className={styles.overviewHeading}><h2>觀測到的不同挑戰</h2><span>最近 6 小時</span></div>
+          {overviewError&&<p role="status" className={styles.inlineWarning}>{overviewError}</p>}
+          {!overviewMetrics?<p>等待觀測資料…</p>:!overviewMetrics.agents.length?<p>尚無 Agent 觀測資料</p>:
+            overviewMetrics.agents.map(agent=>{
+              const value=agent.observations?.observed_challenges;
+              const max=Math.max(1,...overviewMetrics.agents.map(a=>a.observations?.observed_challenges??0));
+              return <div className={styles.chartRow} key={agent.id}><span>{agent.name.replace(/^Agent\s+/,'')}</span><div className={styles.chartTrack} aria-hidden="true"><i style={{width:`${value===undefined?0:value/max*100}%`}} /></div><span>{value??'—'}</span></div>;
+            })}
+          <p className={styles.caption}>各台期間去重；跨台可能重疊。不是上傳行數，也不等同現場新生蘑菇。</p>
+          {overviewMetrics&&<p className={styles.caption}>資料窗口 {formatTime(overviewMetrics.window_start)} ～ {formatTime(overviewMetrics.generated_at)}</p>}
+        </section>
+        <section className={styles.overviewPanel}>
+          <div className={styles.overviewHeading}><h2>正在掃描</h2><button type="button" onClick={()=>setPage('fleet')}>查看機隊</button></div>
+          {dashboard?.agents.map(agent=><div className={styles.compactAgent} key={agent.id}>
+            <div><strong>{agent.name}</strong><span data-attention={needsAttention(agent)}>{agentState(agent)}</span></div>
+            <p>{[agent.current_country,agent.current_city].filter(Boolean).join('－')||'目前城市未回報'} · 上傳 {ageLabel(agent.health.last_data_at,dashboard.now)}</p>
+          </div>)}
+          {!dashboard&&<p>等待有效的機隊資料…</p>}
+        </section>
+        <p className={styles.caption}>下次換區 {dashboard?.rotation.enabled?formatTime(dashboard.rotation.next_switch_at):'—'} · 台北時間<br/>狀態更新 {formatTime(dashboardLoadedAt)} · 每 10 秒更新</p>
+      </div>}
+
+      {page==='more'&&<details className={styles.disclosure}><summary>系統與輪替摘要</summary><section className={styles.healthGrid}>
         <article className={!dashboard ? styles.healthUnknown :
           dashboard.fleet.online ? styles.healthGood : styles.healthBad}>
           <span>Agent 叢集</span>
@@ -610,9 +639,9 @@ export default function AdminClient({
           <strong>{soakLabel}</strong>
           <small>{soak ? `已觀測 ${soak.observed_hours} 小時・完成 ${soak.fleet.completed_targets} 點` : "讀取中"}</small>
         </article>
-      </section>
+      </section></details>}
 
-      {job && (
+      {page==='fleet'&&job && (
         <section className={styles.progressCard}>
           <div className={styles.progressTop}>
             <div>
@@ -634,6 +663,8 @@ export default function AdminClient({
         </section>
       )}
 
+      {page==='more'&&<details className={styles.disclosure} onToggle={e=>setShowEfficiency(e.currentTarget.open)}><summary>本輪效率與下載</summary>
+      {!jobReport&&<p>展開後載入本輪報告；尚無資料時不推測為零。</p>}
       {jobReport && (
         <section className={styles.metricsPanel}>
           <div className={styles.panelTitle}>
@@ -666,9 +697,9 @@ export default function AdminClient({
             ))}
           </div>
         </section>
-      )}
+      )}</details>}
 
-      <section className={styles.metricsPanel}>
+      {page==='more'&&<details className={styles.disclosure} onToggle={e=>setShowSoak(e.currentTarget.open)}><summary>24 小時穩定度與診斷</summary><section className={styles.metricsPanel}>
         <div className={styles.panelTitle}>
           <div><span>FLEET OBSERVABILITY</span><h2>24 小時穩定度與無資料偵測</h2></div>
           <div className={styles.metricsActions}>
@@ -695,21 +726,19 @@ export default function AdminClient({
             </article>
           ))}
         </div>
-      </section>
+      </section></details>}
 
-      <section className={styles.fleetPanel}>
+      {page==='fleet'&&<section className={styles.fleetPanel}>
         <div className={styles.panelTitle}>
           <div><span>AGENT FLEET</span><h2>全球掃描節點</h2></div>
-          <small>每日 07:30、19:30（台北時間）重新分配三條互不重疊路線，且不沿用前一時段；4 個時段覆蓋全部非台灣國家包。</small>
+          <small>每日 07:30、19:30（台北）換區。詳細控制預設收合。</small>
         </div>
         <div className={styles.agentGrid}>
           {dashboard?.agents.map((agent) => (
-            <article key={agent.id} className={agent.online ? styles.agentOnline : styles.agentOffline}>
-              <div>
-                <i />
-                <strong>{agent.name}</strong>
-                <code>{agent.id}</code>
-              </div>
+            <details key={agent.id} className={styles.agentDisclosure}>
+              <summary><strong>{agent.name}</strong><span data-attention={needsAttention(agent)}>{agentState(agent)}</span><small>{[agent.current_country,agent.current_city].filter(Boolean).join('－')||'目前城市未回報'}</small></summary>
+              <div className={styles.agentBody}>
+              <code>{agent.id}</code>
               <span>
                 {agent.online ? "在線" : "離線"}
                 {agent.paused ? "・已暫停掃描" : ""}・最後回報 {formatTime(agent.last_seen)}
@@ -820,12 +849,13 @@ export default function AdminClient({
                   )
                 )}
               </div>
-            </article>
+              </div>
+            </details>
           ))}
           {!dashboard && <p className={styles.empty}>Agent 資料讀取中，不顯示推測結果</p>}
           {dashboard && !dashboard.agents.length && <p className={styles.empty}>尚未建立 Agent</p>}
         </div>
-        <div className={styles.enroll}>
+        <details className={styles.disclosure}><summary>建立新 Agent 憑證</summary><div className={styles.enroll}>
           <label><span>新節點名稱</span>
             <input value={agentName} placeholder="例如：歐洲 Agent 01"
               onChange={(event) => setAgentName(event.target.value)} />
@@ -837,17 +867,17 @@ export default function AdminClient({
           <button onClick={enrollAgent} disabled={busy || agentName.trim().length < 2}>
             建立 Agent 憑證
           </button>
-        </div>
+        </div></details>
         {credential && (
           <div className={styles.credential}>
             <strong>請立即保存，Token 關閉頁面後不會再次顯示</strong>
             <code>{`AGENT_ID='${credential.id}'\nTOKEN='${credential.token}'`}</code>
           </div>
         )}
-      </section>
+      </section>}
 
       <div className={styles.columns}>
-        <section className={styles.panel}>
+        {page==='fleet'&&<details className={styles.disclosure}><summary>建立掃描工作</summary><section className={styles.panel}>
           <div className={styles.panelTitle}>
             <div><span>NEW SCAN</span><h2>建立掃描工作</h2></div>
             <div className={styles.segment}>
@@ -917,7 +947,7 @@ export default function AdminClient({
             </fieldset>
           )}
 
-          <fieldset>
+          <details className={styles.disclosure}><summary>掃描參數（進階）</summary><fieldset>
             <legend>掃描參數</legend>
             <div className={styles.profileChoices} role="radiogroup" aria-label="掃描密度模式">
               <button type="button" className={scanProfile === "global" ? styles.profileSelected : ""}
@@ -962,21 +992,20 @@ export default function AdminClient({
               <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />
               <span>持續循環（最後一城後回第一城）</span>
             </label>
-          </fieldset>
+          </fieldset></details>
 
           <div className={styles.estimate}>
             <span>預估</span>
             <strong>{estimate.cities} 城市・約 {estimate.points.toLocaleString()} 點・單輪 {estimate.hours.toFixed(1)} 小時</strong>
           </div>
-          {notice && <p className={styles.notice}>{notice}</p>}
-          <button className={styles.startButton} disabled={busy || active || !dashboard?.fleet.online || Boolean(dashboardError)}
+          <button className={styles.startButton} disabled={busy || active || !dashboard?.fleet.online || Boolean(dashboardError) || (mode==='auto'&&!packs.length)}
             onClick={start}>
             {!dashboard ? "等待有效的後台資料" : dashboardError ? "後台資料恢復後可操作" :
               active ? "目前已有掃描工作" : dashboard.fleet.online ? "開始分散式掃描" : "等待 Agent 上線"}
           </button>
-        </section>
+        </section></details>}
 
-        <section className={`${styles.panel} ${styles.logPanel}`}>
+        {page==='fleet'&&<details className={styles.disclosure} onToggle={e=>setShowLogs(e.currentTarget.open)}><summary>手機執行紀錄</summary><section className={`${styles.panel} ${styles.logPanel}`}>
           <div className={styles.panelTitle}>
             <div><span>LIVE LOG</span><h2>手機執行紀錄</h2></div>
             <button onClick={() => refresh()} disabled={busy}>重新整理</button>
@@ -989,15 +1018,16 @@ export default function AdminClient({
               </div>
             )) : <p className={styles.empty}>{dashboard ? "尚無掃描紀錄" : "掃描紀錄讀取中"}</p>}
           </div>
-        </section>
+        </section></details>}
 
-        <section className={`${styles.panel} ${styles.copyAuditPanel}`}>
+        {page==='more'&&<details className={styles.disclosure} onToggle={e=>setShowUsage(e.currentTarget.open)}><summary>使用者行為與複製紀錄</summary><section className={`${styles.panel} ${styles.copyAuditPanel}`}>
           <div className={styles.panelTitle}>
             <div><span>PUBLIC USAGE</span><h2>GPS 複製紀錄（最近 24 小時）</h2></div>
             <button onClick={() => refreshCopyAudit()} disabled={busy}>重新整理</button>
           </div>
           <p className={styles.copyAuditNote}>來源以不可逆雜湊識別碼呈現；不保存完整 IP，資料保留 {copyAudit?.retention_days ?? 30} 天。</p>
-          {copyAuditError ? <p className={styles.error}>{copyAuditError}</p> : <>
+          {copyAuditError&&<p className={styles.error} role="status">{copyAuditError}；保留上次結果。</p>}
+          {!copyAudit ? <p>等待使用者行為資料…</p> : <>
             <div className={styles.copyAuditSummary}>
               <span>複製 <strong>{copyAudit?.summary.copies ?? 0}</strong> 次</span>
               <span>來源 <strong>{copyAudit?.summary.sources ?? 0}</strong></span>
@@ -1018,7 +1048,7 @@ export default function AdminClient({
               <article><h3>API 錯誤</h3>{copyAudit?.analytics.api_errors.length ? copyAudit.analytics.api_errors.slice(0, 5).map((stat) =>
                 <p key={stat.dimension}><code>{stat.dimension}</code><br /><strong>{stat.errors}</strong> 次／{stat.sources} 來源</p>) : <p>尚無使用者端 API 錯誤</p>}</article>
             </div>
-            <div className={styles.copyAuditRows}>
+            <details><summary>展開複製明細</summary><div className={styles.copyAuditRows}>
               {copyAudit?.events.length ? copyAudit.events.map((event) => (
                 <div key={event.id} className={styles.copyAuditRow}>
                   <time>{formatTime(event.at * 1000)}</time>
@@ -1028,11 +1058,12 @@ export default function AdminClient({
                   <span>來源 {event.source_hash}{event.country ? `・${event.country}` : ""}{event.asn ? `・AS${event.asn}` : ""}・{event.device_class}</span>
                 </div>
               )) : <p className={styles.empty}>尚無 GPS 複製紀錄</p>}
-            </div>
+            </div></details>
           </>}
-        </section>
+        </section></details>}
       </div>
-      <ReportAudit />
+      {page==='reports'&&<ReportAudit />}
+      </div>
     </main>
   );
 }

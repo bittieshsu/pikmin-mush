@@ -7,6 +7,8 @@ export async function GET(request: Request) {
   if (!adminAuthorized(request)) return noStoreJson({ error: "forbidden" }, 403);
   await ensureSchema();
   const db = runtime().DB;
+  // Legacy callers still receive logs; the compact UI opts out until expanded.
+  const includeLogs=new URL(request.url).searchParams.get('logs')!=='0';
   // A rotation rebuild may temporarily fail while a large target queue is being
   // materialized. Keep fleet health and recovery controls available instead of
   // turning the entire admin dashboard into an empty state.
@@ -28,9 +30,13 @@ export async function GET(request: Request) {
   }
   const job = await activeOrLatestJob();
   const [agentsResult, logs, targetCounts] = await Promise.all([
-    db.prepare(`SELECT * FROM scan_agents ORDER BY enabled DESC, last_seen DESC, id`)
-      .all<ScanAgentRow>(),
-    job ? db.prepare(`SELECT id, job_id, at, level, message FROM scan_logs
+    db.prepare(`SELECT a.*, t.country AS target_country, t.city AS target_city
+      FROM scan_agents a LEFT JOIN scan_targets t ON t.id=a.current_target_id
+        AND t.job_id=a.current_job_id AND t.lease_agent_id=a.id
+        AND t.status='leased' AND t.lease_expires_at>?
+      ORDER BY a.enabled DESC, a.last_seen DESC, a.id`).bind(Date.now())
+      .all<ScanAgentRow & {target_country:string|null;target_city:string|null}>(),
+    job && includeLogs ? db.prepare(`SELECT id, job_id, at, level, message FROM scan_logs
       WHERE job_id = ? ORDER BY id DESC LIMIT 120`).bind(job.id).all() :
       Promise.resolve({ results: [] }),
     job ? db.prepare(`SELECT status, COUNT(*) AS count FROM scan_targets
@@ -38,7 +44,8 @@ export async function GET(request: Request) {
       Promise.resolve({ results: [] }),
   ]);
   const now = Date.now();
-  const agents = agentsResult.results.map((agent) => publicAgent(agent, now));
+  const agents = agentsResult.results.map((agent) => ({...publicAgent(agent, now),
+    current_country:agent.target_country??'',current_city:agent.target_city??''}));
   const aggregate = agents.reduce((result, agent) => ({
     online: result.online + (agent.online ? 1 : 0),
     uploaded_rows: result.uploaded_rows + agent.uploaded_rows,
