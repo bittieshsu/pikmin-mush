@@ -3,6 +3,7 @@ import { planDailyRotation } from "../../../../lib/rotation-plan.mjs";
 import { COUNTRY_PACK_CATALOG } from "../../../../lib/scan-plans";
 import { scoreRegions } from "../../../../lib/allocation-shadow.mjs";
 import { TARGET_HISTORY_CTE } from "../../../../lib/target-history.mjs";
+import { comparisonWindow, buildAllocationComparison } from "../../../../lib/allocation-comparison.mjs";
 
 export async function GET(request: Request) {
   if (!adminAuthorized(request) && !controllerAuthorized(request)) return noStoreJson({error:"forbidden"},403);
@@ -11,6 +12,13 @@ export async function GET(request: Request) {
   await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name,last_run_at)
     VALUES ('allocation-history-v2',?)`).bind(now).run();
   const epoch=await db.prepare("SELECT last_run_at FROM maintenance_state WHERE name='allocation-history-v2'").first<{last_run_at:number}>();
+  const params=new URL(request.url).searchParams;
+  if (params.get('view')==='comparison') {
+    let window;
+    try { window=comparisonWindow(params,now,Number(epoch?.last_run_at??now)); }
+    catch { return noStoreJson({error:'Invalid comparison window: provide from/to milliseconds, 1h–7d, within corrected history and not in the future'},400); }
+    return noStoreJson(await buildAllocationComparison(db,window));
+  }
   const since=Math.max(now-7*86400000,Number(epoch?.last_run_at ?? now));
   const [effort,opportunities,integrity,agents]=await Promise.all([
     db.prepare(`${TARGET_HISTORY_CTE} SELECT t.country, COUNT(*) AS targets, SUM(e.duration_ms) AS scan_ms
