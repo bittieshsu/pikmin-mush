@@ -205,6 +205,14 @@ upload_new() {
   COUNT=$((SIZE - OFFSET))
   [ "$COUNT" -gt "$MAX_UPLOAD_CHUNK_BYTES" ] && COUNT="$MAX_UPLOAD_CHUNK_BYTES"
   dd if="$TSV" of="$CHUNK" bs=1 skip="$OFFSET" count="$COUNT" 2>/dev/null || return 1
+  # Respect both API row and byte limits; never split a UTF-8 record.
+  # head -n may include an unterminated final line, so trim it first.
+  COMPLETE_LINES="$(wc -l <"$CHUNK" | tr -d ' ')"
+  [ "$COMPLETE_LINES" -gt 2000 ] && COMPLETE_LINES=2000
+  [ "$COMPLETE_LINES" -gt 0 ] || return 1
+  head -n "$COMPLETE_LINES" "$CHUNK" >"$CHUNK.complete" || return 1
+  mv "$CHUNK.complete" "$CHUNK" || return 1
+  COUNT="$(stat -c %s "$CHUNK")"
   CODE="$(auth_curl -o "$RESPONSE" -w '%{http_code}' -X POST \
     -H 'Content-Type: application/octet-stream' \
     --data-binary "@$CHUNK" "$SERVER_URL/api/agent/upload" 2>/dev/null)"
