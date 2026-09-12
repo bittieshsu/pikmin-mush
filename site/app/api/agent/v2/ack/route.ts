@@ -1,5 +1,6 @@
 import { plain } from "../../../../../lib/cloud";
 import { scanEvidence } from "../../../../../lib/scan-evidence.mjs";
+import { scanInteger } from "../../../../../lib/scan-identifiers.mjs";
 import {
   agentRequestVersions, authorizeFleetAgent, completeTask, touchAgent,
 } from "../../../../../lib/fleet";
@@ -14,9 +15,12 @@ export async function POST(request: Request) {
   if (!agent) return plain("unauthorized\n", 401);
   await touchAgent(agent.id, agentRequestVersions(request));
   const url = new URL(request.url);
+  const jobId = scanInteger(url.searchParams.get("job_id"));
+  const targetId = scanInteger(url.searchParams.get("target_id"));
+  if (jobId === null || targetId === null) return plain("invalid_id\n", 400);
   const result = await completeTask(agent, {
-    jobId: count(url.searchParams.get("job_id")),
-    targetId: count(url.searchParams.get("target_id")),
+    jobId,
+    targetId,
     leaseToken: url.searchParams.get("lease") ?? "",
     ok: url.searchParams.get("ok") === "1",
     rows: count(url.searchParams.get("rows")),
