@@ -84,7 +84,7 @@ export async function ensureDailyRotation(now = Date.now()) {
   // Once all candidate checks finish, the next agent poll performs rotation.
   const pendingVerification = await db.prepare(`SELECT COUNT(*) AS count
     FROM scan_targets
-    WHERE (verification_kind='candidate' OR verification_kind='giant-recheck')
+    WHERE (verification_kind='candidate' OR verification_kind='candidate-giant' OR verification_kind='giant-recheck')
       AND status IN ('queued','leased')`)
     .first<{ count: number }>();
   if (Number(pendingVerification?.count ?? 0) > 0) return null;
@@ -250,7 +250,7 @@ export async function redeployDailyRotation(now = Date.now()) {
 
   const pendingVerification = await db.prepare(`SELECT COUNT(*) AS count
     FROM scan_targets
-    WHERE (verification_kind='candidate' OR verification_kind='giant-recheck')
+    WHERE (verification_kind='candidate' OR verification_kind='candidate-giant' OR verification_kind='giant-recheck')
       AND status IN ('queued','leased')`)
     .first<{ count: number }>();
   if (Number(pendingVerification?.count ?? 0) > 0) {
@@ -259,7 +259,7 @@ export async function redeployDailyRotation(now = Date.now()) {
     // ordinary scan targets are replaced below by the new route plan.
     await db.prepare(`UPDATE scan_targets SET status='cancelled', lease_agent_id='',
       lease_token='', lease_expires_at=0, updated_at=?
-      WHERE verification_kind='candidate' AND status IN ('queued','leased')`)
+      WHERE (verification_kind='candidate' OR verification_kind='candidate-giant') AND status IN ('queued','leased')`)
       .bind(now).run();
   }
 
