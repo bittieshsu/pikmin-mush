@@ -1,4 +1,5 @@
 import { plain, runtime } from "../../../../lib/cloud";
+import { scanInteger } from "../../../../lib/scan-identifiers.mjs";
 import {
   authorizeFleetAgent, completeTask, type ScanTargetRow,
 } from "../../../../lib/fleet";
@@ -14,9 +15,10 @@ export async function POST(request: Request) {
   const agent = await authorizeFleetAgent(request);
   if (!agent) return plain("unauthorized\n", 401);
   const url = new URL(request.url);
-  const jobId = count(url.searchParams.get("job_id"));
-  const sequence = count(url.searchParams.get("index"));
-  const cycle = count(url.searchParams.get("cycle"));
+  const jobId = scanInteger(url.searchParams.get("job_id"));
+  const sequence = scanInteger(url.searchParams.get("index"), 0);
+  const cycle = scanInteger(url.searchParams.get("cycle"), 0);
+  if (jobId === null || sequence === null || cycle === null) return plain("invalid_id\n", 400);
   const target = await runtime().DB.prepare(`SELECT * FROM scan_targets
     WHERE job_id=? AND sequence=? AND cycle=? AND status='leased'
       AND lease_agent_id=? ORDER BY id LIMIT 1`)

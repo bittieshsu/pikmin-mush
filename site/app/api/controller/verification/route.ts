@@ -9,7 +9,7 @@ type Candidate = {
   lng: number;
 };
 
-type VerificationKind = "candidate" | "giant-recheck";
+type VerificationKind = "candidate" | "candidate-giant" | "giant-recheck";
 
 const GIANT_RECHECK_LOOKBACK_MS = 48 * 60 * 60 * 1000;
 
@@ -42,10 +42,10 @@ export async function POST(request: Request) {
   const replaceExisting = input.replaceExisting === true;
   const kind = String(input.kind ?? "candidate") as VerificationKind;
   const rawCandidates = Array.isArray(input.candidates) ? input.candidates : [];
-  if (!agentId || !batch || !["candidate", "giant-recheck"].includes(kind)) {
+  if (!agentId || !batch || !["candidate", "candidate-giant", "giant-recheck"].includes(kind)) {
     return noStoreJson({ error: "agentId, batch and a supported kind are required" }, 400);
   }
-  if (kind === "candidate" && !rawCandidates.length) {
+  if (kind !== "giant-recheck" && !rawCandidates.length) {
     return noStoreJson({ error: "candidate verification requires at least one candidate" }, 400);
   }
   if (kind === "giant-recheck" && rawCandidates.length) {
@@ -186,7 +186,7 @@ export async function GET(request: Request) {
       ) AS verified_receipt
     FROM scan_targets t
     LEFT JOIN mushrooms m ON m.id=t.verification_mushroom_id
-    WHERE t.verification_batch=? AND t.verification_kind IN ('candidate','giant-recheck')
+    WHERE t.verification_batch=? AND t.verification_kind IN ('candidate','candidate-giant','giant-recheck')
     ORDER BY t.id`).bind(batch).all<{
       id: string;
       status: string;
@@ -220,7 +220,7 @@ export async function GET(request: Request) {
       verified_at: refreshed ? Number(row.verified_receipt) * 1000 : null,
       eligible: refreshed && capacity > 0 && count >= 0 && count < 5 && count<=capacity &&
         (Number(row.finish_ms)===0 || Number(row.finish_ms)>Date.now()) &&
-        Number(row.level) === (row.verification_kind === "giant-recheck" ? 4 : 3),
+        Number(row.level) === (row.verification_kind === "candidate" ? 3 : 4),
     };
   });
   return noStoreJson({
