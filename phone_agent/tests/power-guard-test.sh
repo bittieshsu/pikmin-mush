@@ -188,3 +188,27 @@ power_guard_heartbeat
 test -z "$SCAN_TARGET_ID"
 
 echo 'power guard policy/parser tests passed'
+
+# Cancer: 79% cannot start recovery; 80% still requires full stability.
+POWER_GUARD_RESUME_BATTERY_PERCENT=80
+reset_guard
+power_guard_hold requested
+PG_LEVEL=79 PG_NOW=1000
+power_guard_decide
+expect_hold
+test "$PG_STABLE_AT" -eq -1
+PG_LEVEL=80 PG_NOW=1010
+power_guard_decide
+PG_NOW=1129
+power_guard_decide
+expect_hold
+PG_NOW=1130
+power_guard_decide
+test "$PG_STATE" = running
+for invalid in bad 0 29 101; do
+  POWER_GUARD_RESUME_BATTERY_PERCENT="$invalid"
+  reset_guard
+  test "$PG_RESUME_BATTERY" -eq 80
+done
+unset POWER_GUARD_RESUME_BATTERY_PERCENT
+echo 'configurable resume threshold tests passed'

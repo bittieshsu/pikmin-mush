@@ -8,6 +8,8 @@ POLL_SECONDS='2'
 # depletion; preserves the task and resumes only after stable, cool charging.
 # Does NOT disable Android thermal/charging protections. See README for policy.
 POWER_GUARD_ENABLED='0'
+# Cancer uses 80; other devices retain the default recovery threshold.
+POWER_GUARD_RESUME_BATTERY_PERCENT='30'
 # Normally auto-detected/reported by agent.sh. Override only for diagnostics.
 # GAME_VERSION='150.0'
 MODULE_VERSION='150.0'
