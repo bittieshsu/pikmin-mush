@@ -1,5 +1,9 @@
 # Pikmin Scanner Agent
 
+## 保護暫停歷程
+
+啟用 power guard 的裝置將暫停／解除保護區間存入本機 `power-episode`、`power-events/`，經認證上傳 `/api/agent/power-events`；離線保留、每 30 秒最多重試一筆，重啟不改寫原始開始時間。首次更新可由既有 `power.hold` 的時間回填目前區間，無法補回先前已刪除的歷史。後台總覽／機隊可展開最近 24 小時紀錄；管理員／controller 才能讀取。解除保護僅表示允許恢復，實際掃描仍需確認目標 ACK 與上傳。Cancer 保持至少 80% 的恢復門檻及原廠安全保護。
+
 手機端 Magisk 常駐 Agent。手機主動透過 HTTPS 連到 `mush.odyliao.cc`，
 不需要 ADB、固定 IP、區域網路或開放手機連接埠。
 
