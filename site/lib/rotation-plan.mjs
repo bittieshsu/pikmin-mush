@@ -10,27 +10,31 @@ export const ROTATION_EPOCH_DATE = "2026-07-22";
 // monthly/event mushroom type from being mixed with the previous-day type.
 const MORNING_ROTATION_DAYS = [
   [
-    { id: "morning-01", label: "跨日東半球 01", packs: ["in", "kr", "th", "my"], cityCount: 36 },
-    { id: "morning-02", label: "跨日東半球 02", packs: ["id", "ph", "vn", "au", "qa"], cityCount: 37 },
-    { id: "morning-03", label: "跨日東半球 03", packs: ["nz", "ae", "sa", "fi", "ro", "bg", "sg", "il"], cityCount: 38 },
+    { id: "morning-01", label: "跨日東半球 01", packs: ["in", "kr", "th"], cityCount: 28 },
+    { id: "morning-02", label: "跨日東半球 02", packs: ["au", "id", "ph", "qa"], cityCount: 29 },
+    { id: "morning-03", label: "跨日東半球 03", packs: ["my", "vn", "fi", "sa", "sg"], cityCount: 28 },
+    { id: "morning-04", label: "跨日東半球 04", packs: ["nz", "ro", "ae", "bg", "il", "jo"], cityCount: 30 },
   ],
   [
-    { id: "morning-04", label: "跨日東半球 04", packs: ["in", "kr", "ph", "qa", "sg", "ae"], cityCount: 36 },
-    { id: "morning-05", label: "跨日東半球 05", packs: ["id", "vn", "au", "my", "il"], cityCount: 38 },
-    { id: "morning-06", label: "跨日東半球 06", packs: ["nz", "th", "fi", "ro", "bg", "jo"], cityCount: 36 },
+    { id: "morning-05", label: "跨日東半球 05", packs: ["in", "kr", "ae", "sg"], cityCount: 25 },
+    { id: "morning-06", label: "跨日東半球 06", packs: ["ph", "id", "my", "il"], cityCount: 28 },
+    { id: "morning-07", label: "跨日東半球 07", packs: ["vn", "au", "th", "bg"], cityCount: 30 },
+    { id: "morning-08", label: "跨日東半球 08", packs: ["nz", "fi", "ro", "jo", "qa"], cityCount: 27 },
   ],
 ];
 
 const EVENING_ROTATION_DAYS = [
   [
-    { id: "evening-01", label: "跨日西半球 01", packs: ["us-east", "mx", "br", "bz"], cityCount: 36 },
-    { id: "evening-02", label: "跨日西半球 02", packs: ["us-central", "ca", "ec", "co", "hn"], cityCount: 38 },
-    { id: "evening-03", label: "跨日西半球 03", packs: ["us-west", "ar", "pe", "cl"], cityCount: 38 },
+    { id: "evening-01", label: "跨日西半球 01", packs: ["us-east", "mx", "bz", "hn"], cityCount: 28 },
+    { id: "evening-02", label: "跨日西半球 02", packs: ["br", "ca", "ec"], cityCount: 26 },
+    { id: "evening-03", label: "跨日西半球 03", packs: ["us-central", "co", "pe"], cityCount: 28 },
+    { id: "evening-04", label: "跨日西半球 04", packs: ["us-west", "ar", "cl"], cityCount: 30 },
   ],
   [
-    { id: "evening-04", label: "跨日西半球 04", packs: ["us-east", "gt", "sv", "ni", "cr", "pa", "bz"], cityCount: 36 },
-    { id: "evening-05", label: "跨日西半球 05", packs: ["us-central", "mx", "br", "uy"], cityCount: 38 },
-    { id: "evening-06", label: "跨日西半球 06", packs: ["us-west", "ca", "ar", "co"], cityCount: 38 },
+    { id: "evening-05", label: "跨日西半球 05", packs: ["us-east", "sv", "ni", "cr"], cityCount: 25 },
+    { id: "evening-06", label: "跨日西半球 06", packs: ["us-central", "gt", "pa", "bz", "uy"], cityCount: 27 },
+    { id: "evening-07", label: "跨日西半球 07", packs: ["mx", "br", "co"], cityCount: 30 },
+    { id: "evening-08", label: "跨日西半球 08", packs: ["us-west", "ar", "ca"], cityCount: 30 },
   ],
 ];
 
