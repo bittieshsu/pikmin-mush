@@ -16,12 +16,22 @@ SCAN_READY="$APP_FILES/scan.ready"
 QUERY_READY="$APP_FILES/map_query.ready"
 PAUSE_FILE="$MODDIR/pause.until"
 MAX_UPLOAD_CHUNK_BYTES=262144
+CURL_BIN="${CURL_BIN:-/system/bin/curl}"
+CURL_DNS_SERVERS="${CURL_DNS_SERVERS:-}"
 
 if [ ! -f "$CONFIG" ]; then
   echo "[agent] missing $CONFIG"
   exit 1
 fi
 . "$CONFIG"
+
+if [ ! -x "$CURL_BIN" ] && [ -x "$MODDIR/bin/curl" ]; then
+  CURL_BIN="$MODDIR/bin/curl"
+fi
+if [ ! -x "$CURL_BIN" ]; then
+  echo "[agent] missing HTTPS client: expected /system/bin/curl or $MODDIR/bin/curl"
+  exit 1
+fi
 
 POWER_GUARD_ENABLED="${POWER_GUARD_ENABLED:-0}"
 if [ "$POWER_GUARD_ENABLED" = "1" ]; then
@@ -92,7 +102,16 @@ case "$OFFSET" in ''|*[!0-9]*) OFFSET=0 ;; esac
 case "$LAST_SEQ" in ''|*[!0-9]*) LAST_SEQ=0 ;; esac
 
 auth_curl() {
-  /system/bin/curl -fsS --connect-timeout 10 --max-time 45 \
+  if [ -n "$CURL_DNS_SERVERS" ]; then
+    "$CURL_BIN" -fsS --dns-servers "$CURL_DNS_SERVERS" --connect-timeout 10 --max-time 45 \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "X-Agent-Id: $AGENT_ID" \
+      -H "X-Agent-Version: $AGENT_VERSION" \
+      -H "X-Game-Version: $GAME_VERSION" \
+      -H "X-Module-Version: $MODULE_VERSION" "$@"
+    return
+  fi
+  "$CURL_BIN" -fsS --connect-timeout 10 --max-time 45 \
     -H "Authorization: Bearer $TOKEN" \
     -H "X-Agent-Id: $AGENT_ID" \
     -H "X-Agent-Version: $AGENT_VERSION" \
@@ -453,7 +472,18 @@ scan_control() {
   # short so a slow control endpoint cannot stretch a bounded map refresh into
   # several minutes. Empty/error responses fail open; lease validation still
   # happens on the normal task and ACK requests.
-  /system/bin/curl -fsS --connect-timeout 3 --max-time 5 \
+  if [ -n "$CURL_DNS_SERVERS" ]; then
+    "$CURL_BIN" -fsS --dns-servers "$CURL_DNS_SERVERS" --connect-timeout 3 --max-time 5 \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "X-Agent-Id: $AGENT_ID" \
+      -H "X-Agent-Version: $AGENT_VERSION" \
+      -H "X-Game-Version: $GAME_VERSION" \
+      -H "X-Module-Version: $MODULE_VERSION" \
+      "$SERVER_URL/api/agent/v2/control?job_id=$SCAN_JOB_ID&target_id=$SCAN_TARGET_ID&lease=$SCAN_LEASE" \
+      2>/dev/null
+    return
+  fi
+  "$CURL_BIN" -fsS --connect-timeout 3 --max-time 5 \
     -H "Authorization: Bearer $TOKEN" \
     -H "X-Agent-Id: $AGENT_ID" \
     -H "X-Agent-Version: $AGENT_VERSION" \
