@@ -580,8 +580,66 @@ static void read_cs_string(void *s, char *out, size_t outsz) {
 
 typedef void (*RegisterMapObject_t)(void *thiz, void *obj, void *method);
 static RegisterMapObject_t orig_RegisterMapObject = nullptr;
-typedef void (*RegisterMapObject153_t)(void *thiz, void *obj, void *tag, void *method);
-static RegisterMapObject153_t orig_RegisterMapObject153 = nullptr;
+static void hooked_RegisterMapObject(void *thiz, void *obj, void *method);
+
+// 153 retains the MapManager registration callback that receives the live
+// MapPoiBlocker instances, but its native RVA is not stable enough to hardcode.
+// Resolve it from the loaded IL2CPP metadata and require the expected assembly,
+// class and one-argument method before installing the hook.
+static void *resolve_153_map_manager_registration() {
+    if (!il2cpp_domain_get || !il2cpp_domain_get_assemblies ||
+        !il2cpp_assembly_get_image || !il2cpp_image_get_name ||
+        !il2cpp_class_from_name || !il2cpp_class_get_method_from_name) {
+        LOGE("[HOOK] 153 metadata APIs unavailable; refusing map hook");
+        return nullptr;
+    }
+    Il2CppDomain *domain = il2cpp_domain_get();
+    size_t count = 0;
+    const Il2CppAssembly **assemblies = domain ?
+        il2cpp_domain_get_assemblies(domain, &count) : nullptr;
+    if (!assemblies) {
+        LOGE("[HOOK] 153 assembly list unavailable; refusing map hook");
+        return nullptr;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const Il2CppImage *image = il2cpp_assembly_get_image(assemblies[i]);
+        const char *image_name = image ? il2cpp_image_get_name(image) : nullptr;
+        if (!image_name || strcmp(image_name, "Niantic.TokyoStudio.Map.dll") != 0) continue;
+        Il2CppClass *klass = il2cpp_class_from_name(
+            image, "Niantic.TokyoStudio.Map", "MapManager");
+        const MethodInfo *method = klass ?
+            il2cpp_class_get_method_from_name(klass, "RegisterMapObject", 1) : nullptr;
+        if (!method || !method->methodPointer) {
+            LOGE("[HOOK] 153 MapManager.RegisterMapObject metadata unavailable");
+            return nullptr;
+        }
+        void *target = (void *) method->methodPointer;
+        if ((uint64_t) target < il2cpp_base ||
+            (uint64_t) target - il2cpp_base > 0x20000000ULL) {
+            LOGE("[HOOK] 153 MapManager method pointer outside libil2cpp; refusing map hook");
+            return nullptr;
+        }
+        LOGI("[HOOK] 153 resolved MapManager.RegisterMapObject RVA=0x%llx",
+             (unsigned long long) ((uint64_t) target - il2cpp_base));
+        return target;
+    }
+    LOGE("[HOOK] 153 MapManager assembly unavailable; refusing map hook");
+    return nullptr;
+}
+
+static void *install_153_map_manager_hook_after_startup(void *) {
+    // libil2cpp can be mapped before the managed domain exists.  Querying the
+    // domain during the splash phase crashes 153, so wait for normal startup
+    // and resolve only from this detached, one-shot worker.
+    sleep(75);
+    void *target = resolve_153_map_manager_registration();
+    if (!target) return nullptr;
+    A64HookFunction(target, (void *) hooked_RegisterMapObject,
+                    (void **) &orig_RegisterMapObject);
+    LOGI("[HOOK] 153 MapManager hook installed after startup, orig=%p",
+         (void *) orig_RegisterMapObject);
+    return nullptr;
+}
 
 static void observe_map_object(void *thiz, void *obj, bool legacy_map_manager) {
     if (legacy_map_manager) capture_map_manager(thiz);
@@ -659,11 +717,6 @@ static void observe_map_object(void *thiz, void *obj, bool legacy_map_manager) {
 static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
     observe_map_object(thiz, obj, true);
     if (orig_RegisterMapObject) orig_RegisterMapObject(thiz, obj, method);
-}
-
-static void hooked_RegisterMapObject153(void *thiz, void *obj, void *tag, void *method) {
-    observe_map_object(thiz, obj, false);
-    if (orig_RegisterMapObject153) orig_RegisterMapObject153(thiz, obj, tag, method);
 }
 
 // ==================== Auto teleport ====================
@@ -869,10 +922,11 @@ void install_hooks(const char *game_data_dir) {
         LOGI("[HOOK] 152 MapManager hook installed, orig=%p",
              (void *) orig_RegisterMapObject);
     } else {
-        A64HookFunction(target, (void *) hooked_RegisterMapObject153,
-                        (void **) &orig_RegisterMapObject153);
-        LOGI("[HOOK] 153 MapObjectManager hook installed, orig=%p",
-             (void *) orig_RegisterMapObject153);
+        pthread_t map_hook_thread;
+        pthread_create(&map_hook_thread, nullptr,
+                       install_153_map_manager_hook_after_startup, nullptr);
+        pthread_detach(map_hook_thread);
+        LOGI("[HOOK] 153 MapManager resolver deferred until managed startup");
     }
 
     // 自動瞬移
