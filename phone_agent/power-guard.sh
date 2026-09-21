@@ -22,6 +22,9 @@ power_guard_init() {
   PG_HOLD_FILE="$MODDIR/power.hold"
   PG_STATUS_FILE="$MODDIR/power.status"
   PG_LOG="$MODDIR/power.log"
+  PG_EVENT_DIR="$MODDIR/power-events"
+  PG_EVENT_ACTIVE="$MODDIR/power-episode"
+  PG_EVENT_LAST=-30
   # Never source persisted state as shell code. An existing hold (even corrupt)
   # requires a fresh recovery window after an Agent restart or phone reboot.
   if [ -e "$PG_HOLD_FILE" ]; then
@@ -29,6 +32,44 @@ power_guard_init() {
     PG_REASON=restart-check
     PG_HOLD_AT=-1
   fi
+}
+
+# Durable interval outbox. Preserve the original wall-clock start across reboot;
+# replaying an open packet cannot reopen a closed interval on the server.
+power_guard_event() {
+  mkdir -p "$PG_EVENT_DIR"
+  chmod 700 "$PG_EVENT_DIR"
+  if [ ! -f "$PG_EVENT_ACTIVE" ] && [ "$PG_STATE" = cooling ]; then
+    PG_STARTED="$(stat -c %Y "$PG_HOLD_FILE" 2>/dev/null)"
+    case "$PG_STARTED" in ''|*[!0-9]*) PG_STARTED="$(date +%s)" ;; esac
+    PG_EVENT_REASON="$(cat "$PG_HOLD_FILE" 2>/dev/null)"
+    case "$PG_EVENT_REASON" in thermal-severe|battery-hot|low-battery|plugged-draining|sensor-unavailable|battery-cold|requested|restart-check) ;; *) PG_EVENT_REASON=restart-check ;; esac
+    (umask 077; printf '%s %s\n' "$PG_STARTED" "$PG_EVENT_REASON" >"$PG_EVENT_ACTIVE.tmp" && mv "$PG_EVENT_ACTIVE.tmp" "$PG_EVENT_ACTIVE")
+  fi
+  if [ -f "$PG_EVENT_ACTIVE" ]; then
+    read -r PG_STARTED PG_EVENT_REASON <"$PG_EVENT_ACTIVE"
+    case "$PG_STARTED" in ''|*[!0-9]*) return 1 ;; esac
+    case "$PG_EVENT_REASON" in thermal-severe|battery-hot|low-battery|plugged-draining|sensor-unavailable|battery-cold|requested|restart-check) ;; *) return 1 ;; esac
+    PG_EVENT_END=null
+    [ "$PG_STATE" != running ] || PG_EVENT_END="$(date +%s)000"
+    PG_EVENT_PATH="$PG_EVENT_DIR/pause-$PG_STARTED.json"
+    (umask 077; printf '{"id":"pause-%s","paused_at":%s000,"resumed_at":%s,"reason":"%s"}\n' "$PG_STARTED" "$PG_STARTED" "$PG_EVENT_END" "$PG_EVENT_REASON" >"$PG_EVENT_PATH.tmp" && mv "$PG_EVENT_PATH.tmp" "$PG_EVENT_PATH") || return 1
+    [ "$PG_STATE" != running ] || rm -f "$PG_EVENT_ACTIVE"
+  fi
+}
+
+power_guard_flush_events() {
+  [ -n "${SERVER_URL:-}" ] || return 0
+  [ $((PG_NOW - PG_EVENT_LAST)) -ge 30 ] || return 0
+  PG_EVENT_LAST="$PG_NOW"
+  for PG_EVENT_PATH in "$PG_EVENT_DIR"/*.json; do
+    [ -f "$PG_EVENT_PATH" ] || break
+    if auth_curl --connect-timeout 3 --max-time 5 -X POST -H 'Content-Type: application/json' \
+      --data-binary "@$PG_EVENT_PATH" "$SERVER_URL/api/agent/power-events" >/dev/null 2>&1; then
+      rm -f "$PG_EVENT_PATH"
+    fi
+    break
+  done
 }
 
 power_guard_log() {
@@ -175,10 +216,12 @@ power_guard_check() {
     power_guard_sample || PG_VALID=0
     [ "$PG_CLOCK_VALID" = 1 ] || PG_VALID=0
     power_guard_decide
+    power_guard_event
     PG_LAST_SAMPLE="$PG_NOW"
     power_guard_status
     if [ $((PG_NOW - PG_LAST_LOG)) -ge 300 ]; then power_guard_log "state=$PG_STATE reason=$PG_REASON"; fi
   fi
+  power_guard_flush_events
   if [ "$PG_STATE" = cooling ]; then
     # Retry bounded force-stop while the guard owns the scanner. Manual pause
     # bypasses this gate, so it does not fight a user playing on the phone.

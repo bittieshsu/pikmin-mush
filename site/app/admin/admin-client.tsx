@@ -233,6 +233,16 @@ export default function AdminClient({
 }) {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [page, setPage] = useState('overview');
+  const [powerHistory,setPowerHistory] = useState<{key:string;agent_id:string;agent_name:string;paused_at:number;resumed_at:number|null;reason:string}[]|null>(null);
+  const [powerError,setPowerError] = useState('');
+  const refreshPower=useCallback(async()=>{try{
+      const response=await fetch('/api/admin/power-events',{cache:'no-store'});
+      if(!response.ok)throw new Error();
+      const data=await response.json();
+      setPowerHistory(data.pauses);setPowerError(data.truncated?'紀錄較多，僅顯示最近 1,000 筆':'');
+    }catch{setPowerError('保護紀錄暫時無法更新，以下可能為舊資料');}
+  },[]);
+  useVisiblePolling(refreshPower,30_000,page==='overview'||page==='fleet');
   const [showSoak, setShowSoak] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [showEfficiency, setShowEfficiency] = useState(false);
@@ -562,6 +572,16 @@ export default function AdminClient({
       </nav>
       <div className={styles.workspace}>
       {notice&&<p className={styles.notice} role="status">{notice}</p>}
+      {(page==='overview'||page==='fleet')&&<details className={styles.disclosure}>
+        <summary>保護暫停與恢復 · 最近 24 小時{powerHistory?.some(p=>!p.resumed_at)?' · 有尚未回報恢復的裝置':''}</summary>
+        {powerError&&<p role="status">{powerError}</p>}
+        {powerHistory===null?<p>等待紀錄…</p>:!powerHistory.length?<p>此期間沒有保護暫停紀錄</p>:powerHistory.map(p=><p key={p.key}>
+          <strong>{p.agent_name||p.agent_id}</strong> · {p.reason}<br/>
+          暫停 {formatTime(p.paused_at)}<br/>
+          {p.resumed_at?`解除保護 ${formatTime(p.resumed_at)}`:'尚未收到解除保護回報'}
+        </p>)}
+        <p className={styles.caption}>時間為台北時間。解除保護表示允許恢復，實際掃描請對照最後上傳；不包含手動暫停。</p>
+      </details>}
 
       {dashboardError && (
         <div className={styles.dataWarning} role="status">
@@ -594,7 +614,7 @@ export default function AdminClient({
         <section className={styles.overviewPanel}>
           <div className={styles.overviewHeading}><h2>正在掃描</h2><button type="button" onClick={()=>setPage('fleet')}>查看機隊</button></div>
           {dashboard?.agents.map(agent=><div className={styles.compactAgent} key={agent.id}>
-            <div><strong>{agent.name}</strong><span data-attention={needsAttention(agent)}>{agentState(agent)}</span></div>
+            <div><strong>{agent.name}</strong><span data-attention={needsAttention(agent)}>{powerHistory?.some(p=>p.agent_id===agent.id&&!p.resumed_at)?'保護暫停（尚無恢復回報）':agentState(agent)}</span></div>
             <p>{[agent.current_country,agent.current_city].filter(Boolean).join('－')||'目前城市未回報'} · 上傳 {ageLabel(agent.health.last_data_at,dashboard.now)}</p>
           </div>)}
           {!dashboard&&<p>等待有效的機隊資料…</p>}

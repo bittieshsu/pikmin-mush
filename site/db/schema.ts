@@ -1,5 +1,11 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+export const agentPowerPauses = sqliteTable('agent_power_pauses', {
+  key:text('key').primaryKey(), agentId:text('agent_id').notNull(),
+  pausedAt:integer('paused_at').notNull(), resumedAt:integer('resumed_at'),
+  reason:text('reason').notNull(), receivedAt:integer('received_at').notNull(),
+}, t=>[index('power_pause_agent_time_idx').on(t.agentId,t.pausedAt)]);
+
 export const reportAuditEvents = sqliteTable('report_audit_events', {
   key:text('key').primaryKey(), batch:text('batch').notNull(), phase:text('phase').notNull(),
   kind:text('kind').notNull(), at:integer('at').notNull(), payload:text('payload').notNull(),
