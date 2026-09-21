@@ -431,12 +431,12 @@ void il2cpp_dump(const char *outDir) {
 #include <ctime>
 #include <map>
 
-// Pikmin Bloom v152.0 / versionCode 1787540739 (Leo binary SHA256 verified).
-// These RVAs and prologue signatures are version-locked. Refuse to install any hook
-// when the loaded libil2cpp does not match, so a future game update fails closed
-// instead of patching an unrelated function.
-#define TARGET_PIKMIN_VERSION "152.0"
-#define TARGET_PIKMIN_VERSION_CODE 1787540739
+// Each profile is verified against exact version-specific RVAs and prologues.
+// Refuse to install any hook when the loaded libil2cpp matches neither profile.
+#define TARGET_PIKMIN_152_VERSION "152.0"
+#define TARGET_PIKMIN_152_VERSION_CODE 1787540739
+#define TARGET_PIKMIN_153_VERSION "153.0"
+#define TARGET_PIKMIN_153_VERSION_CODE 1788751814
 // 152.0 retains the MapManager registration callback that receives the
 // MapPoiBlocker instances used by the scanner.  MapObjectManager has a distinct
 // two-argument UI registration method, but it is not the callback that
@@ -445,6 +445,13 @@ void il2cpp_dump(const char *outDir) {
 #define RVA_LocationController_Update 0x71B5C34
 #define RVA_SetOverride 0x71B6794
 #define RVA_MapQueryManager_OnMapQueryResponse 0xCBF17E8
+
+// 153.0 migrated map-object materialization from MapManager's one-argument
+// callback to MapObjectManager.RegisterMapObject(MapObjectBase, MapObjectTag).
+// The proto layouts and LocationController methods remain compatible.
+#define RVA153_MapObjectManager_RegisterMapObject 0x5A02CA0
+#define RVA153_LocationController_Update 0x7178874
+#define RVA153_SetOverride 0x71793D4
 
 static const uint8_t SIG_RegisterMapObject[] = {
     0xFE, 0x67, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
@@ -462,12 +469,22 @@ static const uint8_t SIG_MapQueryManager_OnMapQueryResponse[] = {
     0xFF, 0x43, 0x02, 0xD1, 0xFE, 0x23, 0x00, 0xF9,
     0xFA, 0x67, 0x05, 0xA9, 0xF8, 0x5F, 0x06, 0xA9
 };
+static const uint8_t SIG153_MapObjectManager_RegisterMapObject[] = {
+    0xFE, 0x0F, 0x1D, 0xF8, 0xF6, 0x57, 0x01, 0xA9,
+    0xF4, 0x4F, 0x02, 0xA9, 0x01, 0x03, 0x00, 0xB4,
+    0xF3, 0x03, 0x01, 0xAA, 0xF4, 0x03, 0x00, 0xAA,
+    0xE0, 0x03, 0x01, 0xAA, 0xE1, 0x03, 0x1F, 0xAA,
+};
+
+static bool target_signature_matches(const void *target, const uint8_t *expected,
+                                     size_t expected_size) {
+    return target && memcmp(target, expected, expected_size) == 0;
+}
 
 static bool matches_target_signature(const char *name, const void *target,
                                      const uint8_t *expected, size_t expected_size) {
-    if (!target || memcmp(target, expected, expected_size) != 0) {
-        LOGE("[HOOK] %s signature mismatch; expected Pikmin %s (%d), refusing hooks",
-             name, TARGET_PIKMIN_VERSION, TARGET_PIKMIN_VERSION_CODE);
+    if (!target_signature_matches(target, expected, expected_size)) {
+        LOGE("[HOOK] %s signature mismatch; refusing hooks", name);
         return false;
     }
     return true;
@@ -563,9 +580,11 @@ static void read_cs_string(void *s, char *out, size_t outsz) {
 
 typedef void (*RegisterMapObject_t)(void *thiz, void *obj, void *method);
 static RegisterMapObject_t orig_RegisterMapObject = nullptr;
+typedef void (*RegisterMapObject153_t)(void *thiz, void *obj, void *tag, void *method);
+static RegisterMapObject153_t orig_RegisterMapObject153 = nullptr;
 
-static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
-    capture_map_manager(thiz);
+static void observe_map_object(void *thiz, void *obj, bool legacy_map_manager) {
+    if (legacy_map_manager) capture_map_manager(thiz);
     if (obj) {
         const char *cname = "?";
         if (il2cpp_object_get_class && il2cpp_class_get_name) {
@@ -635,9 +654,16 @@ static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
             }
         }
     }
-    if (orig_RegisterMapObject) {
-        orig_RegisterMapObject(thiz, obj, method);
-    }
+}
+
+static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
+    observe_map_object(thiz, obj, true);
+    if (orig_RegisterMapObject) orig_RegisterMapObject(thiz, obj, method);
+}
+
+static void hooked_RegisterMapObject153(void *thiz, void *obj, void *tag, void *method) {
+    observe_map_object(thiz, obj, false);
+    if (orig_RegisterMapObject153) orig_RegisterMapObject153(thiz, obj, tag, method);
 }
 
 // ==================== Auto teleport ====================
@@ -801,29 +827,53 @@ void install_hooks(const char *game_data_dir) {
         LOGE("[HOOK] il2cpp_base is 0, abort");
         return;
     }
-    void *target = (void *) (il2cpp_base + RVA_RegisterMapObject);
-    void *upd = (void *) (il2cpp_base + RVA_LocationController_Update);
-    void *set_override = (void *) (il2cpp_base + RVA_SetOverride);
-    if (!matches_target_signature("RegisterMapObject", target, SIG_RegisterMapObject,
-                                  sizeof(SIG_RegisterMapObject)) ||
-        !matches_target_signature("LocationController.Update", upd,
-                                  SIG_LocationController_Update,
-                                  sizeof(SIG_LocationController_Update)) ||
-        !matches_target_signature("SetDeviceLocationOverrideForDebug", set_override,
-                                  SIG_SetOverride, sizeof(SIG_SetOverride))) {
+    void *target152 = (void *) (il2cpp_base + RVA_RegisterMapObject);
+    void *update152 = (void *) (il2cpp_base + RVA_LocationController_Update);
+    void *override152 = (void *) (il2cpp_base + RVA_SetOverride);
+    void *target153 = (void *) (il2cpp_base + RVA153_MapObjectManager_RegisterMapObject);
+    void *update153 = (void *) (il2cpp_base + RVA153_LocationController_Update);
+    void *override153 = (void *) (il2cpp_base + RVA153_SetOverride);
+    const bool is152 =
+        target_signature_matches(target152, SIG_RegisterMapObject,
+                                 sizeof(SIG_RegisterMapObject)) &&
+        target_signature_matches(update152, SIG_LocationController_Update,
+                                 sizeof(SIG_LocationController_Update)) &&
+        target_signature_matches(override152, SIG_SetOverride,
+                                 sizeof(SIG_SetOverride));
+    const bool is153 = !is152 &&
+        target_signature_matches(target153, SIG153_MapObjectManager_RegisterMapObject,
+                                 sizeof(SIG153_MapObjectManager_RegisterMapObject)) &&
+        target_signature_matches(update153, SIG_LocationController_Update,
+                                 sizeof(SIG_LocationController_Update)) &&
+        target_signature_matches(override153, SIG_SetOverride,
+                                 sizeof(SIG_SetOverride));
+    if (!is152 && !is153) {
+        LOGE("[HOOK] no supported Pikmin profile matched; refusing hooks");
         return;
     }
+    void *target = is152 ? target152 : target153;
+    void *upd = is152 ? update152 : update153;
+    void *set_override = is152 ? override152 : override153;
     LOGI("[HOOK] verified Pikmin %s (%d) libil2cpp signatures",
-         TARGET_PIKMIN_VERSION, TARGET_PIKMIN_VERSION_CODE);
+         is152 ? TARGET_PIKMIN_152_VERSION : TARGET_PIKMIN_153_VERSION,
+         is152 ? TARGET_PIKMIN_152_VERSION_CODE : TARGET_PIKMIN_153_VERSION_CODE);
     snprintf(g_mush_path, sizeof(g_mush_path), "%s/files/mushrooms.tsv", game_data_dir);
     snprintf(g_scan_ready_path, sizeof(g_scan_ready_path), "%s/files/scan.ready", game_data_dir);
     snprintf(g_query_ready_path, sizeof(g_query_ready_path), "%s/files/map_query.ready", game_data_dir);
     LOGI("[HOOK] mush log=%s", g_mush_path);
 
-    LOGI("[HOOK] RegisterMapObject target=%p (base=%" PRIx64 " + rva=%x)",
-         target, il2cpp_base, RVA_RegisterMapObject);
-    A64HookFunction(target, (void *) hooked_RegisterMapObject, (void **) &orig_RegisterMapObject);
-    LOGI("[HOOK] installed, orig=%p", (void *) orig_RegisterMapObject);
+    LOGI("[HOOK] map registration target=%p", target);
+    if (is152) {
+        A64HookFunction(target, (void *) hooked_RegisterMapObject,
+                        (void **) &orig_RegisterMapObject);
+        LOGI("[HOOK] 152 MapManager hook installed, orig=%p",
+             (void *) orig_RegisterMapObject);
+    } else {
+        A64HookFunction(target, (void *) hooked_RegisterMapObject153,
+                        (void **) &orig_RegisterMapObject153);
+        LOGI("[HOOK] 153 MapObjectManager hook installed, orig=%p",
+             (void *) orig_RegisterMapObject153);
+    }
 
     // 自動瞬移
     snprintf(g_teleport_path, sizeof(g_teleport_path), "%s/files/teleport.txt", game_data_dir);
@@ -831,16 +881,20 @@ void install_hooks(const char *game_data_dir) {
     A64HookFunction(upd, (void *) hooked_LCUpdate, (void **) &orig_LCUpdate);
     LOGI("[TP] Update hooked at %p, SetOverride=%p, control=%s", upd, (void *) fn_SetOverride, g_teleport_path);
 
-    void *map_query_response =
-        (void *) (il2cpp_base + RVA_MapQueryManager_OnMapQueryResponse);
-    if (matches_target_signature("MapQueryManager.OnMapQueryResponse", map_query_response,
-                                 SIG_MapQueryManager_OnMapQueryResponse,
-                                 sizeof(SIG_MapQueryManager_OnMapQueryResponse))) {
-        A64HookFunction(map_query_response, (void *) hooked_MapQueryResponse,
-                        (void **) &orig_MapQueryResponse);
-        LOGI("[REFRESH] experimental map refresh hooks installed");
+    if (is152) {
+        void *map_query_response =
+            (void *) (il2cpp_base + RVA_MapQueryManager_OnMapQueryResponse);
+        if (matches_target_signature("MapQueryManager.OnMapQueryResponse", map_query_response,
+                                     SIG_MapQueryManager_OnMapQueryResponse,
+                                     sizeof(SIG_MapQueryManager_OnMapQueryResponse))) {
+            A64HookFunction(map_query_response, (void *) hooked_MapQueryResponse,
+                            (void **) &orig_MapQueryResponse);
+            LOGI("[REFRESH] 152 map-query hook installed");
+        } else {
+            LOGW("[REFRESH] 152 map-query hook unavailable; cold restart fallback remains");
+        }
     } else {
-        LOGW("[REFRESH] experimental hooks unavailable; cold restart fallback remains");
+        LOGI("[REFRESH] 153 uses map-object readiness; map-query hook intentionally disabled");
     }
     pthread_t th;
     pthread_create(&th, nullptr, teleport_thread, nullptr);
