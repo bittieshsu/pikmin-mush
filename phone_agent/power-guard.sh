@@ -3,6 +3,11 @@
 # controls. Opt in per device. All times used by the policy are monotonic seconds.
 
 power_guard_init() {
+  PG_RESUME_BATTERY="${POWER_GUARD_RESUME_BATTERY_PERCENT:-30}"
+  case "$PG_RESUME_BATTERY" in
+    [3-9][0-9]|100) ;;
+    *) PG_RESUME_BATTERY=80 ;;
+  esac
   PG_STATE=running
   PG_REASON=none
   PG_LAST_SAMPLE=-30
@@ -119,10 +124,10 @@ power_guard_decide() {
     return
   fi
   [ "$PG_STATE" = cooling ] || return 0
-  # Hysteresis: light/no thermal restriction, <=39 C, >=30%, external power,
+  # Hysteresis: light/no thermal restriction, <=39 C, configured battery minimum, external power,
   # charging/full and no meaningful battery loss for two continuous minutes.
   if [ "$PG_THERMAL" -gt 1 ] || [ "$PG_TEMP" -gt 390 ] ||
-      [ "$PG_TEMP" -lt 100 ] || [ "$PG_LEVEL" -lt 30 ] ||
+      [ "$PG_TEMP" -lt 100 ] || [ "$PG_LEVEL" -lt "$PG_RESUME_BATTERY" ] ||
       [ "$PG_PLUGGED" != 1 ] || { [ "$PG_CHARGE" != 2 ] && [ "$PG_CHARGE" != 5 ]; }; then
     PG_STABLE_AT=-1
     return
