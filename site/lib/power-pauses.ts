@@ -20,7 +20,7 @@ export async function savePowerPause(agentId:string, event:NonNullable<ReturnTyp
 }
 
 export async function powerPauseHistory(from:number,to:number) {
-  const rows=await runtime().DB.prepare(`SELECT p.*,a.name AS agent_name FROM agent_power_pauses p
+  const rows=await runtime().DB.prepare(`SELECT p.*,a.display_name AS agent_name FROM agent_power_pauses p
     LEFT JOIN scan_agents a ON a.id=p.agent_id
     WHERE p.paused_at<=? AND (p.resumed_at IS NULL OR p.resumed_at>=?) ORDER BY p.paused_at DESC LIMIT 1001`)
     .bind(to,from).all();

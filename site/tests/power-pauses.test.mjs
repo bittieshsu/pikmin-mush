@@ -17,7 +17,7 @@ function load(path,deps){
 }
 const db=new DatabaseSync(':memory:');
 db.exec(readFileSync(new URL('../drizzle/0020_romantic_namor.sql',import.meta.url),'utf8'));
-db.exec('CREATE TABLE scan_agents(id TEXT,name TEXT);');
+db.exec('CREATE TABLE scan_agents(id TEXT,display_name TEXT);');
 const cloud={runtime:()=>({DB:{prepare(sql){return {bind(...args){return {
   async run(){return db.prepare(sql).run(...args);},
   async all(){return {results:db.prepare(sql).all(...args)};}
