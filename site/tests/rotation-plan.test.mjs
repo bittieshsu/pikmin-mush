@@ -19,29 +19,29 @@ test("switches at 07:30 and 19:30 Asia/Taipei", () => {
 
 test("manual redeploy avoids both current and next scheduled routes", () => {
   const now = Date.parse("2026-08-03T05:00:00Z");
-  const agents = ["primary", "agent-2", "agent-3"];
+  const agents = ["primary", "agent-2", "agent-3", "agent-4"];
   const current = planDailyRotation(agents, now);
   const manual = planManualRedeploy(agents, now);
   const next = planDailyRotation(agents, current.nextSwitchAt);
   const currentIds = new Set(current.assignments.map((item) => item.id));
   const nextIds = new Set(next.assignments.map((item) => item.id));
-  assert.equal(manual.assignments.length, 3);
+  assert.equal(manual.assignments.length, 4);
   assert.equal(manual.assignments.every((item) => !currentIds.has(item.id)), true);
   assert.equal(manual.assignments.every((item) => !nextIds.has(item.id)), true);
-  assert.ok(manual.assignments.every((item) => [35, 36, 37, 38].includes(item.cityCount)));
+  assert.ok(manual.assignments.every((item) => item.cityCount >= 25 && item.cityCount <= 30));
 });
 
-test("assigns three Agents distinct balanced priority routes without Taiwan or Japan", () => {
+test("assigns four Agents distinct balanced priority routes without Taiwan or Japan", () => {
   const seenBundles = new Set();
   const seenPacks = new Set();
   for (let slot = 0; slot < ROTATION_DAYS.length; slot += 1) {
     const now = Date.parse("2026-07-21T23:30:00Z") + slot * 12 * 60 * 60_000;
-    const plan = planDailyRotation(["agent-3", "agent-2", "agent-1"], now);
-    assert.equal(plan.assignments.length, 3);
-    assert.equal(new Set(plan.assignments.map((item) => item.id)).size, 3);
+    const plan = planDailyRotation(["agent-4", "agent-3", "agent-2", "agent-1"], now);
+    assert.equal(plan.assignments.length, 4);
+    assert.equal(new Set(plan.assignments.map((item) => item.id)).size, 4);
     const counts = plan.assignments.map((item) => item.cityCount);
-    assert.ok(Math.max(...counts) - Math.min(...counts) <= 3);
-    assert.ok(Math.min(...counts) >= 35);
+    assert.ok(Math.max(...counts) - Math.min(...counts) <= 5);
+    assert.ok(Math.min(...counts) >= 25);
     const slotPacks = new Set();
     for (const assignment of plan.assignments) {
       seenBundles.add(assignment.id);
@@ -52,7 +52,7 @@ test("assigns three Agents distinct balanced priority routes without Taiwan or J
       }
     }
   }
-  assert.equal(seenBundles.size, 12);
+  assert.equal(seenBundles.size, 16);
   assert.equal(seenPacks.has("tw"), false);
   assert.equal(seenPacks.has("jp"), false);
   assert.ok(seenPacks.has("in"));
@@ -100,16 +100,17 @@ test("morning and evening assignments never repeat the previous routes", () => {
   }
 });
 
-test("reverses the three routes between Agents on the next cycle", () => {
+test("reverses the four routes between Agents on the next cycle", () => {
   const first = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3"],
+    ["agent-1", "agent-2", "agent-3", "agent-4"],
     Date.parse("2026-07-22T00:00:00Z"),
   );
   const nextCycle = planDailyRotation(
-    ["agent-1", "agent-2", "agent-3"],
+    ["agent-1", "agent-2", "agent-3", "agent-4"],
     Date.parse("2026-07-24T00:00:00Z"),
   );
-  assert.equal(first.assignments[0].id, nextCycle.assignments[2].id);
-  assert.equal(first.assignments[1].id, nextCycle.assignments[1].id);
-  assert.equal(first.assignments[2].id, nextCycle.assignments[0].id);
+  assert.equal(first.assignments[0].id, nextCycle.assignments[3].id);
+  assert.equal(first.assignments[1].id, nextCycle.assignments[2].id);
+  assert.equal(first.assignments[2].id, nextCycle.assignments[1].id);
+  assert.equal(first.assignments[3].id, nextCycle.assignments[0].id);
 });
