@@ -104,3 +104,5 @@ MAP_SHEET_COLLAPSE_END_Y='0'
 # MAP_ENTRY_START_X=1230
 # MAP_ENTRY_END_X=220
 # MAP_ENTRY_Y=1600
+# Libra-only fail-closed screen matching. Requires bin/ui-probe and visual-recovery.sh.
+VISUAL_RECOVERY_ENABLED=0

@@ -120,6 +120,15 @@ GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
   sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')}"
 MODULE_VERSION="${MODULE_VERSION:-151.0}"
 QUERY_ONLY_STREAK=0
+REFRESH_FAILURE_STREAK=0
+VISUAL_RECOVERY_ENABLED="${VISUAL_RECOVERY_ENABLED:-0}"
+if [ "$VISUAL_RECOVERY_ENABLED" = "1" ]; then
+  if [ ! -r "$MODDIR/visual-recovery.sh" ] || [ ! -x "$MODDIR/bin/ui-probe" ]; then
+    echo "[ui] visual recovery dependencies missing; refusing blind recovery"
+    exit 1
+  fi
+  . "$MODDIR/visual-recovery.sh"
+fi
 [ -n "$TOKEN" ] || TOKEN="$(cat "$MODDIR/token" 2>/dev/null)"
 if [ -z "$TOKEN" ]; then
   echo "[agent] missing token"
@@ -358,6 +367,8 @@ launch_game() {
 
 game_keyevent() {
   scan_can_run || return 2
+  # ENTER/DPAD on a healthy Unity scene can activate a focused quest control.
+  [ "${VISUAL_RECOVERY_ENABLED:-0}" != "1" ] || return 0
   KEY_NAME="$1"
   DISPLAY_ID="$(game_display_id)"
   if [ "$LOCAL_DISPLAY" = "1" ] && [ -z "$DISPLAY_ID" ]; then
@@ -509,7 +520,7 @@ ensure_game_running() {
     # using this device's already configured compass; do not inherit the old
     # query-only streak and wait up to twelve points before attempting recovery.
     echo "[power] cold-start recovery: open map using configured compass"
-    enter_map_view || true
+    if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then visual_recover; else enter_map_view || true; fi
     guarded_startup_wait 3 || return 2
   fi
 }
@@ -652,6 +663,11 @@ wait_for_map_refresh() {
     # fires exactly once per fallback attempt (not on a repeating timer) —
     # repeating the same blind guess would only compound whichever mistake
     # it made the first time.
+    if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then
+      if [ "$REFRESH_PHASE" = "fallback" ]; then
+        case "$REFRESH_ELAPSED" in 8|20|30|42) visual_recover || true;; esac
+      fi
+    else
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 8 ]; then
       if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
         # Do not acknowledge via keys first and then tap the same screen:
@@ -692,6 +708,7 @@ wait_for_map_refresh() {
     # but only after the dashboard compass has had time to switch views.
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 42 ]; then
       [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ] || game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+    fi
     fi
     # The 153 callback fires when a populated map consumes a fresh location.
     # Reapply only after the warning/dashboard/map sequence has completed;
@@ -887,7 +904,9 @@ execute_scan_task() {
       # dismisses the known warning; the second opens the dashboard map.  Each
       # is made at most once per query-only streak, so it cannot become a blind
       # repeating tap loop on a different screen.
-      if [ "$QUERY_ONLY_STREAK" -eq 1 ]; then
+      if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then
+        [ "$QUERY_ONLY_STREAK" -lt 2 ] || visual_recover || true
+      elif [ "$QUERY_ONLY_STREAK" -eq 1 ]; then
         echo "[scan] query-only recovery: dismiss warning and open map"
         game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
         interruptible_wait 1 "$JOB_ID" || return
@@ -913,7 +932,17 @@ execute_scan_task() {
       QUERY_ONLY_STREAK=0
     fi
   fi
-  if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 0 ]; then
+  if [ "$REFRESH_OK" -eq 1 ] || [ "$NEW_ROWS" -gt 0 ]; then
+    REFRESH_FAILURE_STREAK=0
+  else
+    REFRESH_FAILURE_STREAK=$(( ${REFRESH_FAILURE_STREAK:-0} + 1 ))
+  fi
+  if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ] && [ "$REFRESH_FAILURE_STREAK" -eq 2 ]; then
+    visual_recover || true
+  fi
+  if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 0 ] &&
+     { [ "${VISUAL_RECOVERY_ENABLED:-0}" != "1" ] || [ "$REFRESH_FAILURE_STREAK" -ge 3 ]; }; then
+    REFRESH_FAILURE_STREAK=0
     echo "[scan] direct refresh unavailable; using cold restart fallback"
     if restart_game_for_scan "$JOB_ID" "$REFRESH_TOKEN"; then
       upload_new
