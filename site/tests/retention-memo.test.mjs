@@ -7,7 +7,7 @@ import ts from 'typescript';
 test('retention checks coalesce within an isolate, keep D1 lease and retry transient errors', async()=>{
  let now=1800000000000,calls=0,fail=false;
  class Clock extends Date { static now(){return now;} }
- const db={prepare(sql){return {bind(){return this},async run(){calls++;if(fail)throw Error('transient');return {meta:{changes:0}}},
+ const db={prepare(){return {bind(){return this},async run(){calls++;if(fail)throw Error('transient');return {meta:{changes:0}}},
    async first(){calls++;return {last_run_at:Math.floor(now/1000),last_deleted:1,pending:0}}}}};
  const source=readFileSync(new URL('../lib/cloud.ts',import.meta.url),'utf8');
  const section=source.slice(source.indexOf('export async function runMushroomRetention'));

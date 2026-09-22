@@ -48,6 +48,32 @@ export function createReadLimiter({ now = Date.now, burst = 120, perSecond = 2, 
   };
 }
 
+// Store plain strings, not request-owned Response streams, across invocations.
+// This is a small availability fallback, not durable or cross-isolate storage.
+export function createResponseMemo({ now = Date.now, maxEntries = 16, maxBytes = 8 * 1024 * 1024 } = {}) {
+  const entries = new Map(); let bytes = 0;
+  const remove = key => { const old = entries.get(key); if (old) bytes -= old.size; entries.delete(key); };
+  return {
+    async match(key) {
+      const item = entries.get(key.url);
+      if (!item) return null;
+      if (item.expires <= now()) { remove(key.url); return null; }
+      entries.delete(key.url); entries.set(key.url, item);
+      return new Response(item.body, { headers: item.headers });
+    },
+    async put(key, response) {
+      const body = await response.text(), headers = [...response.headers];
+      const size = 2 * (body.length + key.url.length + JSON.stringify(headers).length);
+      if (size > maxBytes || maxEntries < 1) return;
+      remove(key.url);
+      for (const [id, item] of entries) if (item.expires <= now()) remove(id);
+      while (entries.size >= maxEntries || bytes + size > maxBytes) remove(entries.keys().next().value);
+      entries.set(key.url, { body, headers, size, expires: Number(response.headers.get('X-Map-Cache-Until')) });
+      bytes += size;
+    },
+  };
+}
+
 export function createQueryTrace({ now = Date.now, sample = Math.random, log = value => console.info(JSON.stringify(value)) } = {}) {
   const start = now(), queries = [];
   return {
@@ -69,8 +95,8 @@ export function createQueryTrace({ now = Date.now, sample = Math.random, log = v
   };
 }
 
-export function createPublicReader({ now = Date.now, cache = () => globalThis.caches?.default,
-  limit = createReadLimiter({ now }), trace = () => createQueryTrace({ now }) } = {}) {
+export function createPublicReader({ now = Date.now, cache = () => globalThis.caches?.open('pikmin-public-map-v1'),
+  memory = createResponseMemo({ now }), limit = createReadLimiter({ now }), trace = () => createQueryTrace({ now }) } = {}) {
   return async (request, load) => {
     const url = new URL(request.url);
     if (request.method !== 'GET' || url.pathname !== '/api/mushrooms') return load(trace());
@@ -83,22 +109,29 @@ export function createPublicReader({ now = Date.now, cache = () => globalThis.ca
     }
     for (const name of PARAMS) {
       if (url.searchParams.getAll(name).length > 1) return Response.json({ error: 'duplicate query parameter' }, {
-        status: 400, headers: { 'Cache-Control': 'no-store' },
+        status: 400, headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' },
       });
     }
     // Explicit opt-in: existing notifier / verification reads remain uncached.
     const eligible = url.searchParams.get('cache') === 'brief' && !request.headers.has('Authorization') &&
       !/no-cache|no-store/.test(request.headers.get('Cache-Control') || '');
-    const edge = eligible ? cache() : null, key = eligible ? publicCacheKey(request) : null;
-    if (edge) {
+    const key = eligible ? publicCacheKey(request) : null;
+    // Sites runs in an isolated Workers-for-Platforms namespace: caches.default
+    // is disabled there. A named cache preserves the platform's tenant isolation.
+    let edge = null;
+    if (eligible) { try { edge = await cache(); } catch { /* use bounded fallback */ } }
+    if (eligible) {
+      let hit = null, backend = 'named';
+      if (edge) { try { hit = await edge.match(key); } catch { /* use bounded fallback */ } }
+      if (!hit) { hit = await memory.match(key); backend = 'isolate'; }
       try {
-        const hit = await edge.match(key);
         if (hit && Number(hit.headers.get('X-Map-Cache-Until')) > now()) {
           const response = new Response(hit.body, hit);
           response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
           response.headers.set('X-Map-Cache', 'HIT');
+          response.headers.set('X-Map-Cache-Backend', backend);
           response.headers.delete('X-Map-Cache-Until');
-          metric.finish({ cache: 'HIT' });
+          metric.finish({ cache: backend === 'named' ? 'HIT' : 'HIT_MEMORY' });
           return response;
         }
       } catch { /* cache failure must not become a data outage */ }
@@ -107,21 +140,24 @@ export function createPublicReader({ now = Date.now, cache = () => globalThis.ca
       const response = await load(metric);
       const state = eligible ? 'MISS' : 'BYPASS';
       response.headers.set('X-Map-Cache', state);
-      if (edge && response.status === 200 && !response.headers.has('Set-Cookie')) {
+      if (eligible && response.status === 200 && !response.headers.has('Set-Cookie')) {
         const stored = response.clone();
         stored.headers.set('Cache-Control', `public, max-age=${PUBLIC_CACHE_SECONDS}`);
         stored.headers.set('X-Map-Cache-Until', String(now() + PUBLIC_CACHE_SECONDS * 1000));
-        try { await edge.put(key, stored); } catch { /* bounded freshness without cache dependency */ }
+        await memory.put(key, stored.clone());
+        let backend = 'isolate';
+        if (edge) { try { await edge.put(key, stored); backend = 'named'; } catch { /* local fallback remains usable */ } }
+        response.headers.set('X-Map-Cache-Backend', backend);
         response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
       }
       metric.finish({ cache: state, status: response.status,
         returned: response.headers.has('X-Map-Returned') ? Number(response.headers.get('X-Map-Returned')) : null });
       return response;
-    } catch (error) {
+    } catch {
       metric.finish({ cache: eligible ? 'MISS' : 'BYPASS', status: 503 });
       // Do not expose D1 SQL or bindings in a public error response.
       return Response.json({ error: 'temporarily_unavailable' }, {
-        status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '10' },
+        status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '10', 'Access-Control-Allow-Origin': '*' },
       });
     }
   };

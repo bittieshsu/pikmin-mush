@@ -36,6 +36,13 @@ that a billing incident occurred or that production D1 row usage has been measur
   sort type/level selections. Unknown parameters have no API semantics.
 - Browser responses must revalidate. `X-Map-Cache` reports HIT/MISS/BYPASS;
   `updated` is the response snapshot time, not a new observation of a mushroom.
+- Sites uses Workers-for-Platforms isolation, where `caches.default` is disabled.
+  Use `caches.open('pikmin-public-map-v1')`, never relax namespace trust settings.
+  `X-Map-Cache-Backend` distinguishes the named edge cache from an isolate fallback.
+  The fallback holds only public response strings, with the same 15-second expiry,
+  maximum 16 entries and an approximate 8 MiB UTF-16 storage budget. Reads do not
+  extend expiry. Errors, cookies, authenticated and non-opt-in requests are excluded
+  from both caches. It is not persistent or shared across isolates.
 - Count results and fleet metadata use a bounded 15-second isolate memo. Metadata
   responses include `metadata_updated_at`; combined with response caching, count
   and fleet metadata may be up to approximately 30 seconds old. A failure is not
@@ -87,3 +94,5 @@ search or silently truncate result pages as a performance shortcut.
 References: [issue #95](https://github.com/odyliao-lab/pikmin-mush/issues/95),
 [D1 analytics](https://developers.cloudflare.com/d1/observability/metrics-analytics/),
 [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/).
+
+Platform constraint: [Workers-for-Platforms cache isolation](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/reference/worker-isolation/).
