@@ -558,6 +558,21 @@ refresh_marker_matches() {
   [ "$MARKER_TOKEN" = "$EXPECTED_TOKEN" ]
 }
 
+reapply_active_target() {
+  # Keep the coordinate exactly unchanged; only a fresh, shell-safe token asks
+  # the native LocationController to perform a new map fetch.
+  CURRENT_TARGET="$(cat "$TELEPORT" 2>/dev/null)"
+  IFS=, read -r REAPPLY_LAT REAPPLY_LNG REAPPLY_OLD_TOKEN <<EOF
+$CURRENT_TARGET
+EOF
+  [ -n "$REAPPLY_LAT" ] && [ -n "$REAPPLY_LNG" ] || return 1
+  REAPPLY_TOKEN="$(date +%s)"
+  REAPPLY_VALUE="$REAPPLY_LAT,$REAPPLY_LNG,$REAPPLY_TOKEN"
+  printf '%s\n' "$REAPPLY_VALUE" >"$TELEPORT"
+  [ "$(cat "$TELEPORT" 2>/dev/null)" = "$REAPPLY_VALUE" ] || return 1
+  printf '%s\n' "$REAPPLY_TOKEN"
+}
+
 wait_for_map_refresh() {
   REFRESH_TOKEN="$1"
   REFRESH_JOB="$2"
@@ -630,6 +645,22 @@ wait_for_map_refresh() {
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 30 ]; then
       game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
       game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+    fi
+    # A warning acknowledgement at 20s can reveal the dashboard only after the
+    # earlier map-mode tap was blocked.  Open the actual map mode once more,
+    # but only after the dashboard compass has had time to switch views.
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 42 ]; then
+      game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+    fi
+    # The 153 callback fires when a populated map consumes a fresh location.
+    # Reapply only after the warning/dashboard/map sequence has completed;
+    # doing it during startup can populate the map before its hook exists.
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 48 ]; then
+      REAPPLIED_TOKEN="$(reapply_active_target 2>/dev/null || true)"
+      case "$REAPPLIED_TOKEN" in
+        ''|*[!0-9]*) ;;
+        *) REFRESH_TOKEN="$REAPPLIED_TOKEN"; echo "[scan] reapplied target after map recovery" ;;
+      esac
     fi
     if [ $((REFRESH_LEFT % 10)) -eq 0 ]; then
       CONTROL="$(scan_control)"

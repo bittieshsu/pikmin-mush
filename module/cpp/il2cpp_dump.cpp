@@ -562,6 +562,10 @@ struct SeenMushroom {
 // 相同 ID 若 finishMs 改變（重生/刷新）立即重記；最遲每 10 分鐘重記一次，
 // 避免永久 g_seen 讓 scanner 永遠收不到同一 POI 的新狀態。
 static std::map<std::string, SeenMushroom> g_seen;
+// Keep a bounded native trace for version upgrades.  The scanner only accepts
+// MapPoiBlocker, but recording the first registrations tells us whether a new
+// game build stopped calling this callback or merely changed the object class.
+static volatile int g_map_registration_trace_count = 0;
 
 // 讀 il2cpp C# string (Il2CppString: length@0x10, UTF-16 chars@0x14)
 static void read_cs_string(void *s, char *out, size_t outsz) {
@@ -578,9 +582,18 @@ static void read_cs_string(void *s, char *out, size_t outsz) {
     out[j] = 0;
 }
 
-typedef void (*RegisterMapObject_t)(void *thiz, void *obj, void *method);
-static RegisterMapObject_t orig_RegisterMapObject = nullptr;
-static void hooked_RegisterMapObject(void *thiz, void *obj, void *method);
+typedef void (*MapManagerRegisterMapObject_t)(void *thiz, void *obj, void *method);
+static MapManagerRegisterMapObject_t orig_MapManagerRegisterMapObject = nullptr;
+static void hooked_MapManagerRegisterMapObject(void *thiz, void *obj, void *method);
+
+// 153 materializes objects through MapObjectManager.RegisterMapObject with two
+// managed arguments.  Keep its ABI separate from MapManager's one-argument
+// callback; using the latter drops the tag/method arguments and is unsafe.
+typedef void (*MapObjectManagerRegisterMapObject_t)(void *thiz, void *obj,
+                                                     void *tag, void *method);
+static MapObjectManagerRegisterMapObject_t orig_MapObjectManagerRegisterMapObject = nullptr;
+static void hooked_MapObjectManagerRegisterMapObject(void *thiz, void *obj,
+                                                      void *tag, void *method);
 
 // 153 retains the MapManager registration callback that receives the live
 // MapPoiBlocker instances, but its native RVA is not stable enough to hardcode.
@@ -634,10 +647,10 @@ static void *install_153_map_manager_hook_after_startup(void *) {
     sleep(75);
     void *target = resolve_153_map_manager_registration();
     if (!target) return nullptr;
-    A64HookFunction(target, (void *) hooked_RegisterMapObject,
-                    (void **) &orig_RegisterMapObject);
+    A64HookFunction(target, (void *) hooked_MapManagerRegisterMapObject,
+                    (void **) &orig_MapManagerRegisterMapObject);
     LOGI("[HOOK] 153 MapManager hook installed after startup, orig=%p",
-         (void *) orig_RegisterMapObject);
+         (void *) orig_MapManagerRegisterMapObject);
     return nullptr;
 }
 
@@ -648,6 +661,9 @@ static void observe_map_object(void *thiz, void *obj, bool legacy_map_manager) {
         if (il2cpp_object_get_class && il2cpp_class_get_name) {
             auto klass = il2cpp_object_get_class((Il2CppObject *) obj);
             if (klass) cname = il2cpp_class_get_name(klass);
+        }
+        if (__sync_fetch_and_add(&g_map_registration_trace_count, 1) < 24) {
+            LOGI("[HOOK] map registration class=%s", cname ? cname : "?");
         }
         // 只處理蘑菇 (MapPoiBlocker)
         if (cname && strcmp(cname, "MapPoiBlocker") == 0) {
@@ -714,9 +730,19 @@ static void observe_map_object(void *thiz, void *obj, bool legacy_map_manager) {
     }
 }
 
-static void hooked_RegisterMapObject(void *thiz, void *obj, void *method) {
+static void hooked_MapManagerRegisterMapObject(void *thiz, void *obj, void *method) {
     observe_map_object(thiz, obj, true);
-    if (orig_RegisterMapObject) orig_RegisterMapObject(thiz, obj, method);
+    if (orig_MapManagerRegisterMapObject) {
+        orig_MapManagerRegisterMapObject(thiz, obj, method);
+    }
+}
+
+static void hooked_MapObjectManagerRegisterMapObject(void *thiz, void *obj,
+                                                      void *tag, void *method) {
+    observe_map_object(nullptr, obj, false);
+    if (orig_MapObjectManagerRegisterMapObject) {
+        orig_MapObjectManagerRegisterMapObject(thiz, obj, tag, method);
+    }
 }
 
 // ==================== Auto teleport ====================
@@ -917,11 +943,15 @@ void install_hooks(const char *game_data_dir) {
 
     LOGI("[HOOK] map registration target=%p", target);
     if (is152) {
-        A64HookFunction(target, (void *) hooked_RegisterMapObject,
-                        (void **) &orig_RegisterMapObject);
+        A64HookFunction(target, (void *) hooked_MapManagerRegisterMapObject,
+                        (void **) &orig_MapManagerRegisterMapObject);
         LOGI("[HOOK] 152 MapManager hook installed, orig=%p",
-             (void *) orig_RegisterMapObject);
+             (void *) orig_MapManagerRegisterMapObject);
     } else {
+        A64HookFunction(target, (void *) hooked_MapObjectManagerRegisterMapObject,
+                        (void **) &orig_MapObjectManagerRegisterMapObject);
+        LOGI("[HOOK] 153 MapObjectManager hook installed, orig=%p",
+             (void *) orig_MapObjectManagerRegisterMapObject);
         pthread_t map_hook_thread;
         pthread_create(&map_hook_thread, nullptr,
                        install_153_map_manager_hook_after_startup, nullptr);
