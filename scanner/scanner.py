@@ -15,7 +15,7 @@ Pikmin 蘑菇雷達 — 全自動區域掃描器
 """
 import argparse, subprocess, sqlite3, time, math, threading, json, os, re, secrets, http.server, socketserver
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -117,6 +117,40 @@ def cloud_request(path, method="GET", payload=None, timeout=30):
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return {"text": raw.decode("utf-8", errors="replace")}
+
+def cloud_mushrooms_all():
+    """Legacy local map still expects one list; assemble all bounded cloud pages.
+
+    A missing/repeated cursor or failed page must not look like a complete list.
+    """
+    rows, seen, cursor, first = {}, set(), None, None
+    started = time.monotonic()
+    while True:
+        if time.monotonic() - started > 120:
+            raise RuntimeError("雲端蘑菇分頁讀取逾時，未回傳不完整清單")
+        params = {"limit": "1000"}
+        if cursor:
+            params.update(cursor=cursor, include_meta="0")
+        page = cloud_request("/api/mushrooms?" + urlencode(params))
+        if not isinstance(page, dict) or not isinstance(page.get("mushrooms"), list):
+            raise RuntimeError("雲端蘑菇分頁格式錯誤")
+        if first is None:
+            first = dict(page)
+        for row in page["mushrooms"]:
+            if not isinstance(row, dict) or not row.get("id"):
+                raise RuntimeError("雲端蘑菇資料格式錯誤")
+            rows[str(row["id"])] = row
+        pagination = page.get("pagination") or {}
+        if not pagination.get("has_more"):
+            break
+        cursor = pagination.get("next_cursor")
+        if not isinstance(cursor, str) or not cursor or cursor in seen:
+            raise RuntimeError("雲端蘑菇分頁游標錯誤，未回傳不完整清單")
+        seen.add(cursor)
+    first.update(mushrooms=list(rows.values()), returned=len(rows),
+                 pagination={"mode": "assembled", "has_more": False, "next_cursor": None})
+    return first
+
 
 def cloud_agent_state():
     return cloud_request("/api/controller/state", timeout=20)
@@ -697,7 +731,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif u.path == "/api/mushrooms":
             if CLOUD_API_URL:
                 try:
-                    body = json.dumps(cloud_request("/api/mushrooms"), ensure_ascii=False).encode()
+                    body = json.dumps(cloud_mushrooms_all(), ensure_ascii=False).encode()
                     self._send_bytes(200, body, "application/json; charset=utf-8")
                 except RuntimeError as e:
                     self._send_bytes(502, json.dumps(
