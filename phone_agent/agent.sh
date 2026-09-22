@@ -70,6 +70,11 @@ MAP_VIEW_TAP_Y="${MAP_VIEW_TAP_Y:-0}"
 # calibrated, optional second tap selects Explore, where map objects load.
 MAP_EXPLORE_TAP_X="${MAP_EXPLORE_TAP_X:-0}"
 MAP_EXPLORE_TAP_Y="${MAP_EXPLORE_TAP_Y:-0}"
+# Startup-card coordinates are only safe on devices which have been
+# deliberately calibrated for them.  On a normal in-app restart they can
+# overlap dashboard controls and divert the game into Life Log/activities.
+# Keep them opt-in; the map-entry sequence below remains the default.
+MAP_STARTUP_TAPS_ENABLED="${MAP_STARTUP_TAPS_ENABLED:-0}"
 # Newer game builds can preserve the Life Log bottom sheet across app restarts.
 # Map objects are not delivered while that sheet covers the map.  A calibrated
 # downward swipe collapses it before the normal map-entry tap.
@@ -639,11 +644,15 @@ wait_for_map_refresh() {
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 20 ]; then
       game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
-      game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
-      game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
+      if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
+        game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
+        game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
+      fi
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 30 ]; then
-      game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
+      if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
+        game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
+      fi
       game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
     fi
     # A warning acknowledgement at 20s can reveal the dashboard only after the
