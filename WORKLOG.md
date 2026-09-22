@@ -1,5 +1,15 @@
 # Pikmin Bloom 蘑菇搜尋研究 — WORKLOG
 
+## 2026-09-22 — Issue #95 公開地圖查詢負載改善
+
+- 先回覆 MyNameIsKayaba，感謝以正常瀏覽提供具體觀察；確認問題但不宣稱已發生帳單事故。保留 issue 供正式流量觀測追蹤。
+- 所有 `/api/mushrooms` 路徑改為有界分頁（預設 500、單頁最多 1,000），不設全球清單總筆數／頁數上限；新 cursor 有一小時使用期，`include_meta=0` 可略過後續頁的總數／狀態。舊 Windows proxy 完整組合分頁並拒絕部分成功。
+- 只有網頁 opt-in 的公開 GET 使用 15 秒 Cache API 快取，canonical key 不含時間戳。情報預設讀取、含 Authorization 的讀取、Agent 上傳／後台／複查不套用回應快取。總數／Agent 狀態短 memo、清理鎖檢查 30 秒 memo 及 in-flight 合併；跨 isolate 清理仍以 D1 lease 為準。
+- 地圖維持 20 秒更新並帶服務端篩選；清單每分鐘更新，多頁瀏覽保留帶時間標示的快照，手動刷新回最新第一頁。bbox 向外量化、429/503 共用退避、分頁過期恢復與 CSP hash 一起更新。
+- 新增不含 IP／SQL／搜尋內容／座標的抽樣 D1 meta 與耗時日誌；限流是 bounded、per-isolate 的溫和保護，不宣称是跨區全域 WAF 配額。
+- 本機驗證：網站 build + 60 tests、production audit 0 vulnerabilities、舊 scanner 2 tests、Discord query/diagnostics 11 tests；以實際新版 API 的 HTTP JSON 與 Discord 現行 `_fetch_mushrooms()` 串接，2,305 筆跨三頁全部取齊且 ID 不重複，東西半球皆保留。後續頁在 memo 有效時主要讀查詢由 5 次降為 1 次（不把這當成正式 D1 rows_read 測量）。
+- 此段為開發驗證；GitHub merge、Sites version／正式驗證另記錄，不以本機測試代替上線證據。實作與限制見 `docs/PUBLIC_MAP_EFFICIENCY.md`。
+
 ## 2026-09-20 — Cancer 自動降溫續掃（Agent 2.2.1，單機啟用）
 
 - 背景：老化電池在接電且 Android 仍顯示充電中時也可能持續掉電。此次保留所有原廠熱／充電保護、使用者最低亮度與手動暫停，不改 Aries／Leo，不變更網站、情報時間或區域配置。

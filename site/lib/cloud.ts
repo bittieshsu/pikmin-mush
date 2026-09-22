@@ -672,6 +672,23 @@ function retentionStatus(row: Record<string, unknown> | null | undefined): Mushr
  * the five-minute lease so concurrent Worker isolates cannot all purge at once.
  */
 export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
+  const now = Date.now();
+  if (retentionCached && now - retentionCheckedAt < 30_000) return retentionCached;
+  if (retentionInFlight) return retentionInFlight;
+  retentionInFlight = performMushroomRetention();
+  try {
+    retentionCached = await retentionInFlight;
+    retentionCheckedAt = Date.now();
+    return retentionCached;
+  } finally { retentionInFlight = null; }
+}
+
+// D1's five-minute lease remains authoritative across isolates. This local,
+// bounded memo only avoids repeated lock probes for each public page/upload.
+let retentionCached: MushroomRetentionStatus | null = null;
+let retentionCheckedAt = 0;
+let retentionInFlight: Promise<MushroomRetentionStatus> | null = null;
+async function performMushroomRetention(): Promise<MushroomRetentionStatus> {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
   const cutoff = now - MUSHROOM_RETENTION_SECONDS;
