@@ -92,3 +92,9 @@ MAP_VIEW_TAP_Y='1438'
 # the map when a device otherwise lands on Life Log.  Unset values are no-ops.
 MAP_EXPLORE_TAP_X='0'
 MAP_EXPLORE_TAP_Y='0'
+# Optional: collapse a persisted Life Log bottom sheet before opening the map.
+# Use device pixels; leave all values 0 to disable.
+MAP_SHEET_COLLAPSE_START_X='0'
+MAP_SHEET_COLLAPSE_START_Y='0'
+MAP_SHEET_COLLAPSE_END_X='0'
+MAP_SHEET_COLLAPSE_END_Y='0'

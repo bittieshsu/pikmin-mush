@@ -70,6 +70,13 @@ MAP_VIEW_TAP_Y="${MAP_VIEW_TAP_Y:-0}"
 # calibrated, optional second tap selects Explore, where map objects load.
 MAP_EXPLORE_TAP_X="${MAP_EXPLORE_TAP_X:-0}"
 MAP_EXPLORE_TAP_Y="${MAP_EXPLORE_TAP_Y:-0}"
+# Newer game builds can preserve the Life Log bottom sheet across app restarts.
+# Map objects are not delivered while that sheet covers the map.  A calibrated
+# downward swipe collapses it before the normal map-entry tap.
+MAP_SHEET_COLLAPSE_START_X="${MAP_SHEET_COLLAPSE_START_X:-0}"
+MAP_SHEET_COLLAPSE_START_Y="${MAP_SHEET_COLLAPSE_START_Y:-0}"
+MAP_SHEET_COLLAPSE_END_X="${MAP_SHEET_COLLAPSE_END_X:-0}"
+MAP_SHEET_COLLAPSE_END_Y="${MAP_SHEET_COLLAPSE_END_Y:-0}"
 # Niantic 的移動過快偵測（「由於移動速度太快，一部分的遊玩將被限制」／
 # 「我不是司機」）在長時間高速瞬移後可能出現，觸控關閉，不吃 ENTER/DPAD_CENTER。
 SPEED_WARNING_TAP_X="${SPEED_WARNING_TAP_X:-0}"
@@ -372,6 +379,29 @@ game_tap() {
   fi
 }
 
+game_swipe() {
+  SWIPE_X1="$1"
+  SWIPE_Y1="$2"
+  SWIPE_X2="$3"
+  SWIPE_Y2="$4"
+  case "$SWIPE_X1,$SWIPE_Y1,$SWIPE_X2,$SWIPE_Y2" in
+    *[!0-9,]*|0,*|*,0,*) return 1 ;;
+  esac
+  if [ "$LOCAL_DISPLAY" = "1" ]; then
+    DISPLAY_ID="$(game_display_id)" || {
+      echo "[display] virtual display unavailable; refusing physical swipe"
+      return 1
+    }
+  else
+    DISPLAY_ID=""
+  fi
+  if [ -n "$DISPLAY_ID" ]; then
+    run_as_shell "input -d $DISPLAY_ID swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
+  else
+    run_as_shell "input swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
+  fi
+}
+
 # 2026-08-20 現場測試教訓，記在這裡因為它決定了下面 wait_for_map_refresh
 # fallback 分支的寫法，不是只是背景知識：
 # 1) 固定座標點擊「不是」無害的 no-op——這款遊戲不同畫面的底部/中段功能列
@@ -585,6 +615,8 @@ wait_for_map_refresh() {
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 8 ]; then
       game_keyevent KEYCODE_ENTER
       game_keyevent KEYCODE_DPAD_CENTER
+      game_swipe "$MAP_SHEET_COLLAPSE_START_X" "$MAP_SHEET_COLLAPSE_START_Y" \
+        "$MAP_SHEET_COLLAPSE_END_X" "$MAP_SHEET_COLLAPSE_END_Y" || true
       game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 12 ]; then
