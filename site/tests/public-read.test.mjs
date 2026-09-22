@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMemo, createPublicReader, createReadLimiter, createQueryTrace, publicCacheKey } from '../lib/public-read.mjs';
+import { createMemo, createPublicReader, createReadLimiter, createQueryTrace, createResponseMemo, publicCacheKey } from '../lib/public-read.mjs';
 
 const url = query => new Request('https://example.test/api/mushrooms?' + query);
 function harness() {
@@ -23,6 +23,7 @@ test('opt-in public cache canonicalizes order/cache-busters and expires after 15
   assert.equal(first.headers.get('X-Map-Cache'), 'MISS');
   const second = await h.read(url('limit=1&levels=3,4&cache=brief&_=two'), h.load);
   assert.equal(second.headers.get('X-Map-Cache'), 'HIT');
+  assert.equal(second.headers.get('X-Map-Cache-Backend'), 'named');
   assert.deepEqual(await first.json(), await second.json());
   assert.equal(h.loads, 1);
   h.advance(15001);
@@ -30,6 +31,29 @@ test('opt-in public cache canonicalizes order/cache-busters and expires after 15
   assert.equal(h.loads, 2);
   assert.equal(h.logs[0].queries[0].rows_read, 101);
   assert.deepEqual(h.logs[1].queries, []);
+});
+
+test('production default opens a named cache without accessing disabled caches.default', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+  const values = new Map(), names = [];
+  Object.defineProperty(globalThis, 'caches', { configurable: true, value: {
+    get default() { throw Error('disabled in isolated namespace'); },
+    async open(name) { names.push(name); return {
+      match: async key => values.get(key.url)?.clone(),
+      put: async (key, response) => values.set(key.url, response.clone()),
+    }; },
+  } });
+  try {
+    const read = createPublicReader({ trace: () => createQueryTrace({ log: () => {} }) });
+    await read(url('cache=brief'), async () => Response.json({ ok: true }));
+    const cached = await read(url('cache=brief'), async () => { throw Error('cache should hit'); });
+    assert.equal(cached.headers.get('X-Map-Cache'), 'HIT');
+    assert.equal(cached.headers.get('X-Map-Cache-Backend'), 'named');
+    assert.deepEqual(names, ['pikmin-public-map-v1', 'pikmin-public-map-v1']);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'caches', previous);
+    else delete globalThis.caches;
+  }
 });
 
 test('cache isolates filters, cursors, bounds, metadata and host; never caches errors or cookies', async () => {
@@ -63,9 +87,33 @@ test('cache outage still serves data; origin failure is non-cacheable and redact
   const read = createPublicReader({ cache: () => ({ match: async()=>{throw Error('cache')},put:async()=>{throw Error('cache')} }),
     trace: () => createQueryTrace({log:()=>{}}) });
   assert.equal((await read(url('cache=brief'), async()=>Response.json({ok:true}))).status, 200);
-  const error = await read(url('cache=brief'), async()=>{throw Error('private SQL GPS')});
+  const cached = await read(url('cache=brief'), async()=>{throw Error('must use fallback')});
+  assert.equal(cached.status,200);assert.equal(cached.headers.get('X-Map-Cache-Backend'),'isolate');
+  const error = await read(url('cache=brief&limit=1'), async()=>{throw Error('private SQL GPS')});
   assert.equal(error.status, 503); assert.equal(error.headers.get('Cache-Control'), 'no-store');
   assert.doesNotMatch(await error.text(), /private|GPS|SQL/);
+});
+
+test('unavailable named cache falls back without weakening cache exclusions', async()=>{
+ let now=1000,loads=0;
+ const read=createPublicReader({now:()=>now,cache:async()=>{throw Error('unavailable')},trace:()=>createQueryTrace({log:()=>{}})});
+ const load=async()=>Response.json({number:++loads});
+ await read(url('cache=brief'),load);
+ assert.equal((await read(url('cache=brief'),load)).headers.get('X-Map-Cache'),'HIT');
+ await read(url('limit=1'),load);assert.equal(loads,2); // fresh notifier read
+ now+=15001;assert.equal((await read(url('cache=brief'),load)).headers.get('X-Map-Cache'),'MISS');
+ assert.equal(loads,3);
+});
+
+test('response fallback is bounded by size/count and never extends expiration on reads',async()=>{
+ let now=1000;
+ const memo=createResponseMemo({now:()=>now,maxEntries:2,maxBytes:2000});
+ const response=body=>new Response(body,{headers:{'X-Map-Cache-Until':'16000'}});
+ await memo.put(url('a'),response('first'));await memo.put(url('b'),response('second'));
+ assert.equal(await (await memo.match(url('a'))).text(),'first');
+ await memo.put(url('c'),response('third'));assert.equal(await memo.match(url('b')),null);
+ await memo.put(url('large'),response('x'.repeat(2000)));assert.equal(await memo.match(url('large')),null);
+ now=16000;assert.equal(await memo.match(url('a')),null);assert.equal(await memo.match(url('c')),null);
 });
 
 test('rate limiting returns Retry-After without poisoning other clients or cache', async () => {

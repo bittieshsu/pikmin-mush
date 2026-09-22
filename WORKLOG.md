@@ -2,6 +2,7 @@
 
 ## 2026-09-22 — Issue #95 公開地圖查詢負載改善
 
+- 線上補正：PR #103／Sites 86 的分頁與入站正常，但相同 POP 連續請求仍為 cache MISS。官方 Workers-for-Platforms 規則停用 `caches.default`，改用獨立命名 cache；加 16 筆／約 8 MiB、15 秒不延展的記憶體回退及快取來源標示，不放寬平台隔離權限。
 - 先回覆 MyNameIsKayaba，感謝以正常瀏覽提供具體觀察；確認問題但不宣稱已發生帳單事故。保留 issue 供正式流量觀測追蹤。
 - 所有 `/api/mushrooms` 路徑改為有界分頁（預設 500、單頁最多 1,000），不設全球清單總筆數／頁數上限；新 cursor 有一小時使用期，`include_meta=0` 可略過後續頁的總數／狀態。舊 Windows proxy 完整組合分頁並拒絕部分成功。
 - 只有網頁 opt-in 的公開 GET 使用 15 秒 Cache API 快取，canonical key 不含時間戳。情報預設讀取、含 Authorization 的讀取、Agent 上傳／後台／複查不套用回應快取。總數／Agent 狀態短 memo、清理鎖檢查 30 秒 memo 及 in-flight 合併；跨 isolate 清理仍以 D1 lease 為準。
