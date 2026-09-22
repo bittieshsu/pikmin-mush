@@ -33,6 +33,14 @@ if [ ! -x "$CURL_BIN" ]; then
   exit 1
 fi
 
+# Android system curl may have threaded DNS but not c-ares. In that case
+# --dns-servers fails before any request, even when normal DNS works.
+if [ -n "$CURL_DNS_SERVERS" ] &&
+   ! "$CURL_BIN" --dns-servers "$CURL_DNS_SERVERS" --version >/dev/null 2>&1; then
+  echo "[agent] custom DNS unsupported by curl; using system DNS"
+  CURL_DNS_SERVERS=""
+fi
+
 POWER_GUARD_ENABLED="${POWER_GUARD_ENABLED:-0}"
 if [ "$POWER_GUARD_ENABLED" = "1" ]; then
   if [ ! -r "$MODDIR/power-guard.sh" ]; then
@@ -48,6 +56,11 @@ MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-60}"
+# Pikmin 153 resolves its dynamic MapManager registration hook only after the
+# managed domain is safe to inspect.  A device that repeatedly cold-restarts
+# before that point can never reach object readiness.  Keep the default off;
+# use this only for a verified affected device while preserving control polling.
+MAP_HOOK_WARMUP_SECONDS="${MAP_HOOK_WARMUP_SECONDS:-0}"
 QUERY_ONLY_RESTART_STREAK="${QUERY_ONLY_RESTART_STREAK:-12}"
 DISPLAY_QUERY_TIMEOUT_SECONDS="${DISPLAY_QUERY_TIMEOUT_SECONDS:-5}"
 DISPLAY_READY_TIMEOUT_SECONDS="${DISPLAY_READY_TIMEOUT_SECONDS:-20}"
@@ -61,6 +74,22 @@ STARTUP_LOGIN_CONTINUE_Y="${STARTUP_LOGIN_CONTINUE_Y:-0}"
 # 已於實機驗證多次可靠。
 MAP_VIEW_TAP_X="${MAP_VIEW_TAP_X:-0}"
 MAP_VIEW_TAP_Y="${MAP_VIEW_TAP_Y:-0}"
+# Some physical-display layouts open the Life Log after MAP_VIEW_TAP.  A
+# calibrated, optional second tap selects Explore, where map objects load.
+MAP_EXPLORE_TAP_X="${MAP_EXPLORE_TAP_X:-0}"
+MAP_EXPLORE_TAP_Y="${MAP_EXPLORE_TAP_Y:-0}"
+# Startup-card coordinates are only safe on devices which have been
+# deliberately calibrated for them.  On a normal in-app restart they can
+# overlap dashboard controls and divert the game into Life Log/activities.
+# Keep them opt-in; the map-entry sequence below remains the default.
+MAP_STARTUP_TAPS_ENABLED="${MAP_STARTUP_TAPS_ENABLED:-0}"
+# Newer game builds can preserve the Life Log bottom sheet across app restarts.
+# Map objects are not delivered while that sheet covers the map.  A calibrated
+# downward swipe collapses it before the normal map-entry tap.
+MAP_SHEET_COLLAPSE_START_X="${MAP_SHEET_COLLAPSE_START_X:-0}"
+MAP_SHEET_COLLAPSE_START_Y="${MAP_SHEET_COLLAPSE_START_Y:-0}"
+MAP_SHEET_COLLAPSE_END_X="${MAP_SHEET_COLLAPSE_END_X:-0}"
+MAP_SHEET_COLLAPSE_END_Y="${MAP_SHEET_COLLAPSE_END_Y:-0}"
 # Niantic 的移動過快偵測（「由於移動速度太快，一部分的遊玩將被限制」／
 # 「我不是司機」）在長時間高速瞬移後可能出現，觸控關閉，不吃 ENTER/DPAD_CENTER。
 SPEED_WARNING_TAP_X="${SPEED_WARNING_TAP_X:-0}"
@@ -91,6 +120,15 @@ GAME_VERSION="${GAME_VERSION:-$(dumpsys package "$PKG" 2>/dev/null |
   sed -n 's/^[[:space:]]*versionName=//p' | head -n 1 | tr -d '\r')}"
 MODULE_VERSION="${MODULE_VERSION:-151.0}"
 QUERY_ONLY_STREAK=0
+REFRESH_FAILURE_STREAK=0
+VISUAL_RECOVERY_ENABLED="${VISUAL_RECOVERY_ENABLED:-0}"
+if [ "$VISUAL_RECOVERY_ENABLED" = "1" ]; then
+  if [ ! -r "$MODDIR/visual-recovery.sh" ] || [ ! -x "$MODDIR/bin/ui-probe" ]; then
+    echo "[ui] visual recovery dependencies missing; refusing blind recovery"
+    exit 1
+  fi
+  . "$MODDIR/visual-recovery.sh"
+fi
 [ -n "$TOKEN" ] || TOKEN="$(cat "$MODDIR/token" 2>/dev/null)"
 if [ -z "$TOKEN" ]; then
   echo "[agent] missing token"
@@ -329,6 +367,8 @@ launch_game() {
 
 game_keyevent() {
   scan_can_run || return 2
+  # ENTER/DPAD on a healthy Unity scene can activate a focused quest control.
+  [ "${VISUAL_RECOVERY_ENABLED:-0}" != "1" ] || return 0
   KEY_NAME="$1"
   DISPLAY_ID="$(game_display_id)"
   if [ "$LOCAL_DISPLAY" = "1" ] && [ -z "$DISPLAY_ID" ]; then
@@ -360,6 +400,41 @@ game_tap() {
       >/dev/null 2>&1
   else
     run_as_shell "input tap $TAP_X $TAP_Y" >/dev/null 2>&1
+  fi
+}
+
+game_swipe() {
+  scan_can_run || return 2
+  SWIPE_X1="$1"
+  SWIPE_Y1="$2"
+  SWIPE_X2="$3"
+  SWIPE_Y2="$4"
+  case "$SWIPE_X1,$SWIPE_Y1,$SWIPE_X2,$SWIPE_Y2" in
+    *[!0-9,]*|0,*|*,0,*) return 1 ;;
+  esac
+  if [ "$LOCAL_DISPLAY" = "1" ]; then
+    DISPLAY_ID="$(game_display_id)" || {
+      echo "[display] virtual display unavailable; refusing physical swipe"
+      return 1
+    }
+  else
+    DISPLAY_ID=""
+  fi
+  if [ -n "$DISPLAY_ID" ]; then
+    run_as_shell "input -d $DISPLAY_ID swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
+  else
+    run_as_shell "input swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
+  fi
+}
+
+# Opt-in physical-dashboard navigation, calibrated on the device.  In 153,
+# the map page is reached by moving the finger from right to left.
+enter_map_view() {
+  if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+    game_swipe "${MAP_ENTRY_START_X:-0}" "${MAP_ENTRY_Y:-0}" \
+      "${MAP_ENTRY_END_X:-0}" "${MAP_ENTRY_Y:-0}"
+  else
+    game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y"
   fi
 }
 
@@ -445,7 +520,7 @@ ensure_game_running() {
     # using this device's already configured compass; do not inherit the old
     # query-only streak and wait up to twelve points before attempting recovery.
     echo "[power] cold-start recovery: open map using configured compass"
-    game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+    if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then visual_recover; else enter_map_view || true; fi
     guarded_startup_wait 3 || return 2
   fi
 }
@@ -519,6 +594,21 @@ refresh_marker_matches() {
   [ "$MARKER_TOKEN" = "$EXPECTED_TOKEN" ]
 }
 
+reapply_active_target() {
+  # Keep the coordinate exactly unchanged; only a fresh, shell-safe token asks
+  # the native LocationController to perform a new map fetch.
+  CURRENT_TARGET="$(cat "$TELEPORT" 2>/dev/null)"
+  IFS=, read -r REAPPLY_LAT REAPPLY_LNG REAPPLY_OLD_TOKEN <<EOF
+$CURRENT_TARGET
+EOF
+  [ -n "$REAPPLY_LAT" ] && [ -n "$REAPPLY_LNG" ] || return 1
+  REAPPLY_TOKEN="$(date +%s)"
+  REAPPLY_VALUE="$REAPPLY_LAT,$REAPPLY_LNG,$REAPPLY_TOKEN"
+  printf '%s\n' "$REAPPLY_VALUE" >"$TELEPORT"
+  [ "$(cat "$TELEPORT" 2>/dev/null)" = "$REAPPLY_VALUE" ] || return 1
+  printf '%s\n' "$REAPPLY_TOKEN"
+}
+
 wait_for_map_refresh() {
   REFRESH_TOKEN="$1"
   REFRESH_JOB="$2"
@@ -573,19 +663,62 @@ wait_for_map_refresh() {
     # fires exactly once per fallback attempt (not on a repeating timer) —
     # repeating the same blind guess would only compound whichever mistake
     # it made the first time.
+    if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then
+      if [ "$REFRESH_PHASE" = "fallback" ]; then
+        case "$REFRESH_ELAPSED" in 8|20|30|42) visual_recover || true;; esac
+      fi
+    else
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 8 ]; then
+      if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+        # Do not acknowledge via keys first and then tap the same screen:
+        # after dismissal the warning coordinate overlaps a dashboard quest.
+        game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
+      else
       game_keyevent KEYCODE_ENTER
       game_keyevent KEYCODE_DPAD_CENTER
-      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+      if [ "${MAP_ENTRY_MODE:-tap}" != "swipe" ]; then
+        game_swipe "$MAP_SHEET_COLLAPSE_START_X" "$MAP_SHEET_COLLAPSE_START_Y" \
+          "$MAP_SHEET_COLLAPSE_END_X" "$MAP_SHEET_COLLAPSE_END_Y" || true
+      fi
+      enter_map_view || true
+      fi
+    fi
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 12 ]; then
+      if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+        enter_map_view || true
+      else
+        game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+      fi
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 20 ]; then
-      game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
-      game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
-      game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
+      [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ] || game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
+      if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
+        game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
+        game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
+      fi
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 30 ]; then
-      game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
-      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+      if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
+        game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
+      fi
+      enter_map_view || true
+    fi
+    # A warning acknowledgement at 20s can reveal the dashboard only after the
+    # earlier map-mode tap was blocked.  Open the actual map mode once more,
+    # but only after the dashboard compass has had time to switch views.
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 42 ]; then
+      [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ] || game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+    fi
+    fi
+    # The 153 callback fires when a populated map consumes a fresh location.
+    # Reapply only after the warning/dashboard/map sequence has completed;
+    # doing it during startup can populate the map before its hook exists.
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 48 ]; then
+      REAPPLIED_TOKEN="$(reapply_active_target 2>/dev/null || true)"
+      case "$REAPPLIED_TOKEN" in
+        ''|*[!0-9]*) ;;
+        *) REFRESH_TOKEN="$REAPPLIED_TOKEN"; echo "[scan] reapplied target after map recovery" ;;
+      esac
     fi
     if [ $((REFRESH_LEFT % 10)) -eq 0 ]; then
       CONTROL="$(scan_control)"
@@ -610,6 +743,11 @@ restart_game_for_scan() {
   fi
   launch_game || return 1
   if [ "$MAP_REFRESH_EXPERIMENT" = "1" ]; then
+    WARMUP_SECONDS="$(number_or_zero "$MAP_HOOK_WARMUP_SECONDS")"
+    if [ "$WARMUP_SECONDS" -gt 0 ]; then
+      echo "[scan] hook warmup ${WARMUP_SECONDS}s before fallback refresh"
+      interruptible_wait "$WARMUP_SECONDS" "$RESTART_JOB" || return 2
+    fi
     wait_for_map_refresh "$RESTART_TOKEN" "$RESTART_JOB" \
       "$MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS" fallback || return $?
     sleep 1
@@ -766,11 +904,13 @@ execute_scan_task() {
       # dismisses the known warning; the second opens the dashboard map.  Each
       # is made at most once per query-only streak, so it cannot become a blind
       # repeating tap loop on a different screen.
-      if [ "$QUERY_ONLY_STREAK" -eq 1 ]; then
+      if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ]; then
+        [ "$QUERY_ONLY_STREAK" -lt 2 ] || visual_recover || true
+      elif [ "$QUERY_ONLY_STREAK" -eq 1 ]; then
         echo "[scan] query-only recovery: dismiss warning and open map"
         game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
         interruptible_wait 1 "$JOB_ID" || return
-        game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+        enter_map_view || true
       fi
       if [ "$QUERY_ONLY_STREAK" -ge "$(number_or_zero "$QUERY_ONLY_RESTART_STREAK")" ]; then
         echo "[scan] query-only streak reached; cold restarting game at current GPS"
@@ -792,7 +932,17 @@ execute_scan_task() {
       QUERY_ONLY_STREAK=0
     fi
   fi
-  if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 0 ]; then
+  if [ "$REFRESH_OK" -eq 1 ] || [ "$NEW_ROWS" -gt 0 ]; then
+    REFRESH_FAILURE_STREAK=0
+  else
+    REFRESH_FAILURE_STREAK=$(( ${REFRESH_FAILURE_STREAK:-0} + 1 ))
+  fi
+  if [ "${VISUAL_RECOVERY_ENABLED:-0}" = "1" ] && [ "$REFRESH_FAILURE_STREAK" -eq 2 ]; then
+    visual_recover || true
+  fi
+  if [ "$MAP_REFRESH_EXPERIMENT" = "1" ] && [ "$REFRESH_OK" -eq 0 ] &&
+     { [ "${VISUAL_RECOVERY_ENABLED:-0}" != "1" ] || [ "$REFRESH_FAILURE_STREAK" -ge 3 ]; }; then
+    REFRESH_FAILURE_STREAK=0
     echo "[scan] direct refresh unavailable; using cold restart fallback"
     if restart_game_for_scan "$JOB_ID" "$REFRESH_TOKEN"; then
       upload_new

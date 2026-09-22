@@ -66,6 +66,7 @@ test ! -e "$SCAN_PENDING"
 # Cooling restarts must re-enter the live map rather than inherit a query-only
 # streak from the previous Unity process. Warm checks must not toggle the map.
 load_function ensure_game_running
+load_function enter_map_view
 LOCAL_DISPLAY=0 PKG=test.game MAP_VIEW_TAP_X=540 MAP_VIEW_TAP_Y=1910
 QUERY_ONLY_STREAK=8
 pidof() { return 1; }

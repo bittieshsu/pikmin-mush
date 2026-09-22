@@ -1,5 +1,23 @@
 # Pikmin Scanner Agent
 
+## 153 實機地圖入口
+
+Libra 可啟用 `VISUAL_RECOVERY_ENABLED=1`（其他機型預設關閉）。部署前用
+`build-ui-probe.ps1 -NdkRoot <NDK>` 建置 `bin/ui-probe`，一起安裝
+`visual-recovery.sh`。此模式關閉自動確認鍵；連續兩點失敗才辨識畫面，
+連續三點失敗才冷重啟。冷啟動時在固定節點檢查畫面，不直接盲點。
+兩張新截圖一致才關警告、關活動頁或從主畫面右往左滑；未知畫面不操作。
+目前只驗證 Libra 1440×3120、RGBA8888、實體螢幕與 153 UI。
+畫面比對是保守色彩特徵而非 OCR；改版、比例、遮罩不符會拒絕操作。
+截圖僅暫存在手機模組私有檔案，辨識後刪除，不上傳。
+
+經裝置畫面確認後可設定 `MAP_ENTRY_MODE=swipe`，搭配
+`MAP_ENTRY_START_X`、`MAP_ENTRY_END_X`、`MAP_ENTRY_Y`，從主畫面以手指
+**右往左**進入地圖。Libra 1440×3120 實測為 `(1230,1600) → (220,1600)`。
+此模式停用 fallback 的生活紀錄下滑及探索頁點擊；其他裝置預設仍用既有 tap。
+不能僅因畫面出現地圖就宣告成功，必須確認新的 object marker、資料列及上傳接受。
+Android curl 不一定支援指定 DNS；程式會先驗證選項，不支援時保留系統 DNS。
+
 ## 保護暫停歷程
 
 啟用 power guard 的裝置將暫停／解除保護區間存入本機 `power-episode`、`power-events/`，經認證上傳 `/api/agent/power-events`；離線保留、每 30 秒最多重試一筆，重啟不改寫原始開始時間。首次更新可由既有 `power.hold` 的時間回填目前區間，無法補回先前已刪除的歷史。後台總覽／機隊可展開最近 24 小時紀錄；管理員／controller 才能讀取。解除保護僅表示允許恢復，實際掃描仍需確認目標 ACK 與上傳。Cancer 保持至少 80% 的恢復門檻及原廠安全保護。
