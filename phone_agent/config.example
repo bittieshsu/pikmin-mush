@@ -98,3 +98,9 @@ MAP_SHEET_COLLAPSE_START_X='0'
 MAP_SHEET_COLLAPSE_START_Y='0'
 MAP_SHEET_COLLAPSE_END_X='0'
 MAP_SHEET_COLLAPSE_END_Y='0'
+## Optional calibrated physical-screen map entry (153).
+# Default tap preserves existing devices. Swipe moves finger right to left.
+# MAP_ENTRY_MODE=swipe
+# MAP_ENTRY_START_X=1230
+# MAP_ENTRY_END_X=220
+# MAP_ENTRY_Y=1600

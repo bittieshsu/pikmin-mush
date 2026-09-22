@@ -33,6 +33,14 @@ if [ ! -x "$CURL_BIN" ]; then
   exit 1
 fi
 
+# Android system curl may have threaded DNS but not c-ares. In that case
+# --dns-servers fails before any request, even when normal DNS works.
+if [ -n "$CURL_DNS_SERVERS" ] &&
+   ! "$CURL_BIN" --dns-servers "$CURL_DNS_SERVERS" --version >/dev/null 2>&1; then
+  echo "[agent] custom DNS unsupported by curl; using system DNS"
+  CURL_DNS_SERVERS=""
+fi
+
 POWER_GUARD_ENABLED="${POWER_GUARD_ENABLED:-0}"
 if [ "$POWER_GUARD_ENABLED" = "1" ]; then
   if [ ! -r "$MODDIR/power-guard.sh" ]; then
@@ -385,6 +393,7 @@ game_tap() {
 }
 
 game_swipe() {
+  scan_can_run || return 2
   SWIPE_X1="$1"
   SWIPE_Y1="$2"
   SWIPE_X2="$3"
@@ -404,6 +413,17 @@ game_swipe() {
     run_as_shell "input -d $DISPLAY_ID swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
   else
     run_as_shell "input swipe $SWIPE_X1 $SWIPE_Y1 $SWIPE_X2 $SWIPE_Y2 450" >/dev/null 2>&1
+  fi
+}
+
+# Opt-in physical-dashboard navigation, calibrated on the device.  In 153,
+# the map page is reached by moving the finger from right to left.
+enter_map_view() {
+  if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+    game_swipe "${MAP_ENTRY_START_X:-0}" "${MAP_ENTRY_Y:-0}" \
+      "${MAP_ENTRY_END_X:-0}" "${MAP_ENTRY_Y:-0}"
+  else
+    game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y"
   fi
 }
 
@@ -489,7 +509,7 @@ ensure_game_running() {
     # using this device's already configured compass; do not inherit the old
     # query-only streak and wait up to twelve points before attempting recovery.
     echo "[power] cold-start recovery: open map using configured compass"
-    game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+    enter_map_view || true
     guarded_startup_wait 3 || return 2
   fi
 }
@@ -633,17 +653,29 @@ wait_for_map_refresh() {
     # repeating the same blind guess would only compound whichever mistake
     # it made the first time.
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 8 ]; then
+      if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+        # Do not acknowledge via keys first and then tap the same screen:
+        # after dismissal the warning coordinate overlaps a dashboard quest.
+        game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
+      else
       game_keyevent KEYCODE_ENTER
       game_keyevent KEYCODE_DPAD_CENTER
-      game_swipe "$MAP_SHEET_COLLAPSE_START_X" "$MAP_SHEET_COLLAPSE_START_Y" \
-        "$MAP_SHEET_COLLAPSE_END_X" "$MAP_SHEET_COLLAPSE_END_Y" || true
-      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+      if [ "${MAP_ENTRY_MODE:-tap}" != "swipe" ]; then
+        game_swipe "$MAP_SHEET_COLLAPSE_START_X" "$MAP_SHEET_COLLAPSE_START_Y" \
+          "$MAP_SHEET_COLLAPSE_END_X" "$MAP_SHEET_COLLAPSE_END_Y" || true
+      fi
+      enter_map_view || true
+      fi
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 12 ]; then
-      game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+      if [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ]; then
+        enter_map_view || true
+      else
+        game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+      fi
     fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 20 ]; then
-      game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
+      [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ] || game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
       if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
         game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
         game_tap "$STARTUP_TAP_X" "$STARTUP_CONTINUE_Y" || true
@@ -653,13 +685,13 @@ wait_for_map_refresh() {
       if [ "$MAP_STARTUP_TAPS_ENABLED" = "1" ]; then
         game_tap "$STARTUP_TAP_X" "$STARTUP_LOGIN_CONTINUE_Y" || true
       fi
-      game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+      enter_map_view || true
     fi
     # A warning acknowledgement at 20s can reveal the dashboard only after the
     # earlier map-mode tap was blocked.  Open the actual map mode once more,
     # but only after the dashboard compass has had time to switch views.
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 42 ]; then
-      game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+      [ "${MAP_ENTRY_MODE:-tap}" = "swipe" ] || game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
     fi
     # The 153 callback fires when a populated map consumes a fresh location.
     # Reapply only after the warning/dashboard/map sequence has completed;
@@ -859,7 +891,7 @@ execute_scan_task() {
         echo "[scan] query-only recovery: dismiss warning and open map"
         game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
         interruptible_wait 1 "$JOB_ID" || return
-        game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
+        enter_map_view || true
       fi
       if [ "$QUERY_ONLY_STREAK" -ge "$(number_or_zero "$QUERY_ONLY_RESTART_STREAK")" ]; then
         echo "[scan] query-only streak reached; cold restarting game at current GPS"
