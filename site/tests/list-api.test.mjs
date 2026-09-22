@@ -1,12 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';import {Script} from 'node:vm';import {DatabaseSync} from 'node:sqlite';import ts from 'typescript';
 import * as query from '../lib/query-contract.mjs';import * as list from '../lib/list-query.mjs';
+import * as publicRead from '../lib/public-read.mjs';
 test('real API SQL preserves global counts, Chinese search and sorted cursor continuity',async()=>{
  const db=new DatabaseSync(':memory:');
  db.exec(`CREATE TABLE mushrooms(id TEXT,lat REAL,lng REAL,level INTEGER,type INTEGER,cluster TEXT,cooldown INTEGER,finish_ms INTEGER,first_seen INTEGER,last_seen INTEGER,challenger_count INTEGER,challenger_capacity INTEGER,total_power REAL,start_ms INTEGER,giant_recheck_status TEXT,giant_rechecked_at INTEGER,participants_verified_at INTEGER,discovered_by_agent_id TEXT,mushroom_status TEXT)`);
  const now=Math.floor(Date.now()/1000);const insert=db.prepare('INSERT INTO mushrooms VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
  for(let i=0;i<23;i++)insert.run('poi'+i,25,121,3,2,'',0,0,now-100-i,now-i,i%6,35,0,0,'',0,0,'a','active');
- const adapter={prepare(sql){let binds=[];return {bind(...b){binds=b;return this},async all(){return {results:sql.includes('FROM scan_agents')||sql.includes('FROM scan_targets')?[]:db.prepare(sql).all(...binds)}},async first(){return sql.includes('FROM scanner_status')?null:db.prepare(sql).get(...binds)}}}};
+ const adapter={prepare(sql){let binds=[];return {bind(...b){binds=b;return this},async all(){return {results:sql.includes('FROM scan_agents')||sql.includes('FROM scan_targets')||sql.includes('FROM scanner_status')?[]:db.prepare(sql).all(...binds)}},async first(){return sql.includes('FROM scanner_status')?null:db.prepare(sql).get(...binds)}}}};
  const exports={};
  const source=readFileSync(new URL('../app/api/mushrooms/route.ts',import.meta.url),'utf8');
  new Script(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText).runInNewContext({exports,URL,URLSearchParams,TextEncoder,TextDecoder,btoa,atob,Date,require(p){
@@ -14,6 +15,7 @@ test('real API SQL preserves global counts, Chinese search and sorted cursor con
   if(p.endsWith('/fleet'))return {publicAgent:()=>({})};
   if(p.endsWith('/mushroom-policy.mjs'))return {MIN_MUSHROOM_LEVEL:2};
   if(p.endsWith('/scan-plans'))return {COUNTRY_PACK_CATALOG:[{name:'台灣',cities:[['台北',25,121]]}]};
+  if(p.endsWith('/public-read.mjs'))return publicRead;
   if(p.endsWith('/query-contract.mjs'))return query;if(p.endsWith('/list-query.mjs'))return list;throw Error(p);
  }});
  const params=new URLSearchParams({levels:'3',types:'2',under_five:'1',sort:'discovered',limit:'4',q:'台北',discovered_within_hours:'6'});
