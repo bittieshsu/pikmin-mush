@@ -48,6 +48,11 @@ MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS="${MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS:-60}"
+# Pikmin 153 resolves its dynamic MapManager registration hook only after the
+# managed domain is safe to inspect.  A device that repeatedly cold-restarts
+# before that point can never reach object readiness.  Keep the default off;
+# use this only for a verified affected device while preserving control polling.
+MAP_HOOK_WARMUP_SECONDS="${MAP_HOOK_WARMUP_SECONDS:-0}"
 QUERY_ONLY_RESTART_STREAK="${QUERY_ONLY_RESTART_STREAK:-12}"
 DISPLAY_QUERY_TIMEOUT_SECONDS="${DISPLAY_QUERY_TIMEOUT_SECONDS:-5}"
 DISPLAY_READY_TIMEOUT_SECONDS="${DISPLAY_READY_TIMEOUT_SECONDS:-20}"
@@ -61,6 +66,10 @@ STARTUP_LOGIN_CONTINUE_Y="${STARTUP_LOGIN_CONTINUE_Y:-0}"
 # 已於實機驗證多次可靠。
 MAP_VIEW_TAP_X="${MAP_VIEW_TAP_X:-0}"
 MAP_VIEW_TAP_Y="${MAP_VIEW_TAP_Y:-0}"
+# Some physical-display layouts open the Life Log after MAP_VIEW_TAP.  A
+# calibrated, optional second tap selects Explore, where map objects load.
+MAP_EXPLORE_TAP_X="${MAP_EXPLORE_TAP_X:-0}"
+MAP_EXPLORE_TAP_Y="${MAP_EXPLORE_TAP_Y:-0}"
 # Niantic 的移動過快偵測（「由於移動速度太快，一部分的遊玩將被限制」／
 # 「我不是司機」）在長時間高速瞬移後可能出現，觸控關閉，不吃 ENTER/DPAD_CENTER。
 SPEED_WARNING_TAP_X="${SPEED_WARNING_TAP_X:-0}"
@@ -578,6 +587,9 @@ wait_for_map_refresh() {
       game_keyevent KEYCODE_DPAD_CENTER
       game_tap "$MAP_VIEW_TAP_X" "$MAP_VIEW_TAP_Y" || true
     fi
+    if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 12 ]; then
+      game_tap "$MAP_EXPLORE_TAP_X" "$MAP_EXPLORE_TAP_Y" || true
+    fi
     if [ "$REFRESH_PHASE" = "fallback" ] && [ "$REFRESH_ELAPSED" -eq 20 ]; then
       game_tap "$SPEED_WARNING_TAP_X" "$SPEED_WARNING_TAP_Y" || true
       game_tap "$STARTUP_TAP_X" "$STARTUP_WARNING_Y" || true
@@ -610,6 +622,11 @@ restart_game_for_scan() {
   fi
   launch_game || return 1
   if [ "$MAP_REFRESH_EXPERIMENT" = "1" ]; then
+    WARMUP_SECONDS="$(number_or_zero "$MAP_HOOK_WARMUP_SECONDS")"
+    if [ "$WARMUP_SECONDS" -gt 0 ]; then
+      echo "[scan] hook warmup ${WARMUP_SECONDS}s before fallback refresh"
+      interruptible_wait "$WARMUP_SECONDS" "$RESTART_JOB" || return 2
+    fi
     wait_for_map_refresh "$RESTART_TOKEN" "$RESTART_JOB" \
       "$MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS" fallback || return $?
     sleep 1

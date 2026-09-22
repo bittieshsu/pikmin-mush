@@ -42,6 +42,10 @@ MAP_REFRESH_SETTLE_SECONDS='3'
 # the new MAP_VIEW_TAP below (fired once, later than the dismiss taps, once
 # a fresh restart has had time to settle onto the home dashboard).
 MAP_REFRESH_FALLBACK_TIMEOUT_SECONDS='60'
+# Disabled by default.  Pikmin 153 resolves its dynamic map-object hook only
+# after managed startup; set a calibrated value (for example 80) only on a
+# device proven to cold-restart before the hook becomes available.
+MAP_HOOK_WARMUP_SECONDS='0'
 # Default 720x1600 virtual-display coordinates for the touch-only screens
 # that can appear after a reboot. Leave at 0 on other display sizes; taps at
 # (0, N) are skipped by agent.sh so unset ones are simply no-ops.
@@ -84,3 +88,7 @@ SHARE_CLOSE_TAP_Y='1311'
 # too, so nothing else in the pipeline signals that this tap is missing.
 MAP_VIEW_TAP_X='337'
 MAP_VIEW_TAP_Y='1438'
+# Optional physical-display calibration: select the Explore tab after opening
+# the map when a device otherwise lands on Life Log.  Unset values are no-ops.
+MAP_EXPLORE_TAP_X='0'
+MAP_EXPLORE_TAP_Y='0'
