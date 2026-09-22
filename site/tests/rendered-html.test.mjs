@@ -233,7 +233,8 @@ test("adds fleet metrics, viewport pagination, version gates, and safe token rot
   assert.match(metricsRoute, /buildSoakReport/);
   assert.match(mushroomsApi, /parseBbox/);
   assert.match(mushroomsApi, /decodeCursor/);
-  assert.match(mushroomsApi, /legacy-full/);
+  assert.match(mushroomsApi, /mode: "cursor"/);
+  assert.doesNotMatch(mushroomsApi, /legacy-full/);
   assert.match(mushroomsApi, /MAX_PAGE_SIZE = 1_000/);
   assert.match(map, /viewportBbox/);
   assert.match(map, /MAX_VIEW_ROWS=3000/);
