@@ -1,5 +1,6 @@
 import {
-  ensureSchema, noStoreJson, runMushroomRetention, runtime,
+  ensureSchema, noStoreJson, readMushroomRetentionStatus, runtime,
+  scheduleMushroomRetention,
 } from "../../../lib/cloud";
 import { publicAgent, type ScanAgentRow } from "../../../lib/fleet";
 import { MIN_MUSHROOM_LEVEL } from "../../../lib/mushroom-policy.mjs";
@@ -153,7 +154,7 @@ async function readMushrooms(request: Request, trace: ReturnType<typeof createQu
   // Validate before touching D1; every public path is bounded, including requests
   // from old clients that omit limit/bbox/cursor. Complete results use next_cursor.
   await ensureSchema();
-  const retention = await runMushroomRetention();
+  const retention = includeMeta ? await readMushroomRetentionStatus() : null;
   const db = runtime().DB;
 
   const where = [
@@ -328,13 +329,14 @@ async function readMushrooms(request: Request, trace: ReturnType<typeof createQu
     retention: {
       policy_days: 7,
       level_2_3_inactive_after_days: 2,
-      last_run_at: retention.lastRunAt,
-      last_deleted: retention.lastDeleted,
-      pending: retention.pending,
+      last_run_at: retention?.lastRunAt ?? 0,
+      last_deleted: retention?.lastDeleted ?? 0,
+      pending: retention?.pending ?? 0,
     },
     } : {}),
     mushrooms: publicMushrooms,
   });
   response.headers.set('X-Map-Returned', String(publicMushrooms.length));
+  scheduleMushroomRetention();
   return response;
 }

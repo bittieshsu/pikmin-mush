@@ -1,6 +1,6 @@
 import {
-  ensureSchema, parseTsv, plain, readBoundedUtf8, runMushroomRetention,
-  runtime, upsertMushrooms,
+  ensureSchema, parseTsv, plain, readBoundedUtf8, runtime,
+  scheduleMushroomRetention, upsertMushrooms,
 } from "../../../../lib/cloud";
 import {
   agentRequestVersions, authorizeFleetAgent, touchAgent,
@@ -40,8 +40,15 @@ export async function POST(request: Request) {
   }
   const rows = parseTsv(complete);
   if (rows.length > MAX_ROWS_PER_UPLOAD) return plain("too many rows\n", 413);
-  await upsertMushrooms(rows, agent.id, agent.current_target_id);
-  await runMushroomRetention();
+  const upsertStarted = Date.now();
+  try { await upsertMushrooms(rows, agent.id, agent.current_target_id); }
+  finally {
+    const duration = Date.now() - upsertStarted;
+    if (duration >= 2_000) console.info(JSON.stringify({
+      event: "mushroom_upload_stage", stage: "upsert", duration_ms: duration,
+      rows: rows.length,
+    }));
+  }
   await db.prepare(`UPDATE scan_agents SET
       partial_text = ?,
       uploaded_rows = uploaded_rows + ?,
@@ -62,5 +69,6 @@ export async function POST(request: Request) {
     agentId: agent.id, type: "upload", rows: rows.length, bytes: body.bytes,
   });
   await touchAgent(agent.id, agentRequestVersions(request));
+  scheduleMushroomRetention();
   return plain(`accepted=${rows.length}\n`);
 }

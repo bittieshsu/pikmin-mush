@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { isUsefulMushroomLevel } from "./mushroom-policy.mjs";
 import { EVENT_SPOT_SEED } from "./event-spots";
 import { observationStatements } from "./observations.mjs";
@@ -23,6 +23,8 @@ const MUSHROOM_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const LEVEL_TWO_THREE_INVALID_AFTER_SECONDS = 2 * 24 * 60 * 60;
 const MUSHROOM_RETENTION_INTERVAL_SECONDS = 5 * 60;
 const MUSHROOM_RETENTION_BATCH_SIZE = 1_000;
+const MUSHROOM_INVALIDATION_BATCH_SIZE = 250;
+const MUSHROOM_HISTORY_BATCH_SIZE = 500;
 
 export type MushroomRetentionStatus = {
   lastRunAt: number;
@@ -666,11 +668,21 @@ function retentionStatus(row: Record<string, unknown> | null | undefined): Mushr
   };
 }
 
-/**
- * Keep the public map bounded even for mushrooms whose source did not provide
- * an expiry time. Agent uploads and map reads both call this function; D1 owns
- * the five-minute lease so concurrent Worker isolates cannot all purge at once.
- */
+/** Read-only status for the public map; cleanup must not hold a response open. */
+export async function readMushroomRetentionStatus(): Promise<MushroomRetentionStatus> {
+  if (retentionCached && Date.now() - retentionCheckedAt < 30_000) return retentionCached;
+  const row = await runtime().DB.prepare(`SELECT last_run_at, last_deleted, pending
+    FROM maintenance_state WHERE name='mushroom-retention'`).first();
+  return retentionStatus(row);
+}
+
+/** Run bounded cleanup after the response, retaining the D1 lease across isolates. */
+export function scheduleMushroomRetention(): void {
+  waitUntil(runMushroomRetention().catch(() => {
+    console.warn(JSON.stringify({ event: "mushroom_retention_failed" }));
+  }));
+}
+
 export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
   const now = Date.now();
   if (retentionCached && now - retentionCheckedAt < 30_000) return retentionCached;
@@ -688,6 +700,17 @@ export async function runMushroomRetention(): Promise<MushroomRetentionStatus> {
 let retentionCached: MushroomRetentionStatus | null = null;
 let retentionCheckedAt = 0;
 let retentionInFlight: Promise<MushroomRetentionStatus> | null = null;
+async function retentionStep<T>(stage: string, action: () => Promise<T>): Promise<T> {
+  const began = Date.now();
+  try { return await action(); }
+  finally {
+    const duration = Date.now() - began;
+    if (duration >= 1_000) console.info(JSON.stringify({
+      event: "mushroom_retention_stage", stage, duration_ms: duration,
+    }));
+  }
+}
+
 async function performMushroomRetention(): Promise<MushroomRetentionStatus> {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
@@ -695,39 +718,44 @@ async function performMushroomRetention(): Promise<MushroomRetentionStatus> {
   const invalidCutoff = now - LEVEL_TWO_THREE_INVALID_AFTER_SECONDS;
   const lockBefore = now - MUSHROOM_RETENTION_INTERVAL_SECONDS;
 
-  await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
-    VALUES ('mushroom-retention')`).run();
-  const claim = await db.prepare(`UPDATE maintenance_state
+  const state = await retentionStep("status", () => db.prepare(`SELECT last_run_at, last_deleted, pending
+    FROM maintenance_state WHERE name='mushroom-retention'`).first());
+  if (state && Number(state.last_run_at) >= lockBefore) return retentionStatus(state);
+  if (!state) await retentionStep("initialize", () => db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
+    VALUES ('mushroom-retention')`).run());
+  const claim = await retentionStep("claim", () => db.prepare(`UPDATE maintenance_state
       SET last_run_at=?
       WHERE name='mushroom-retention' AND last_run_at<?`)
-    .bind(now, lockBefore).run();
+    .bind(now, lockBefore).run());
   if (Number(claim.meta.changes ?? 0) === 0) {
     return retentionStatus(await db.prepare(`SELECT last_run_at, last_deleted, pending
       FROM maintenance_state WHERE name='mushroom-retention'`).first());
   }
 
-  await db.prepare(`UPDATE mushrooms
+  await retentionStep("invalidate", () => db.prepare(`UPDATE mushrooms
       SET mushroom_status='invalid', invalidated_at=?
-      WHERE mushroom_status='active' AND level IN (2, 3) AND first_seen < ?`)
-    .bind(now, invalidCutoff).run();
-  const candidates = await db.prepare(`SELECT COUNT(*) AS count FROM mushrooms
-    WHERE last_seen < ?`).bind(cutoff).first<{ count: number }>();
+      WHERE id IN (SELECT id FROM mushrooms
+        WHERE mushroom_status='active' AND level IN (2, 3) AND first_seen < ?
+        LIMIT ?)`)
+    .bind(now, invalidCutoff, MUSHROOM_INVALIDATION_BATCH_SIZE).run());
+  const candidates = await retentionStep("count", () => db.prepare(`SELECT COUNT(*) AS count FROM mushrooms
+    WHERE last_seen < ?`).bind(cutoff).first<{ count: number }>());
   const eligible = Number(candidates?.count ?? 0);
-  const deleted = await db.prepare(`DELETE FROM mushrooms WHERE id IN (
+  const deleted = await retentionStep("delete_mushrooms", () => db.prepare(`DELETE FROM mushrooms WHERE id IN (
       SELECT id FROM mushrooms WHERE last_seen < ?
       ORDER BY last_seen ASC, id ASC LIMIT ?
-    )`).bind(cutoff, MUSHROOM_RETENTION_BATCH_SIZE).run();
+    )`).bind(cutoff, MUSHROOM_RETENTION_BATCH_SIZE).run());
   const lastDeleted = Number(deleted.meta.changes ?? 0);
   // Bounded history retention shares the existing five-minute maintenance lease.
-  await db.prepare(`DELETE FROM mushroom_observations WHERE key IN (
+  await retentionStep("delete_observations", () => db.prepare(`DELETE FROM mushroom_observations WHERE key IN (
       SELECT key FROM mushroom_observations WHERE received_at < ?
-      ORDER BY received_at LIMIT 5000
-    )`).bind(cutoff).run();
+      ORDER BY received_at LIMIT ?
+    )`).bind(cutoff, MUSHROOM_HISTORY_BATCH_SIZE).run());
   const pending = Math.max(0, eligible - lastDeleted);
   // Archives are kept beyond the seven-day evidence window and pruned in bounds.
-  await db.prepare(`DELETE FROM scan_target_history WHERE id IN (
-    SELECT id FROM scan_target_history WHERE archived_at < ? ORDER BY archived_at LIMIT 5000
-  )`).bind((cutoff-86400)*1000).run();
+  await retentionStep("delete_targets", () => db.prepare(`DELETE FROM scan_target_history WHERE id IN (
+    SELECT id FROM scan_target_history WHERE archived_at < ? ORDER BY archived_at LIMIT ?
+  )`).bind((cutoff-86400)*1000, MUSHROOM_HISTORY_BATCH_SIZE).run());
   await db.prepare(`UPDATE maintenance_state
       SET last_deleted=?, pending=?
       WHERE name='mushroom-retention'`)
