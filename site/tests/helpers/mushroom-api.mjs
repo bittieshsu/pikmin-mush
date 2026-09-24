@@ -31,7 +31,7 @@ export function createApi({ size = 2305 } = {}) {
   const source=readFileSync(new URL('../../app/api/mushrooms/route.ts',import.meta.url),'utf8');
   new Script(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)
     .runInNewContext({exports,URL,URLSearchParams,TextEncoder,TextDecoder,btoa,atob,Date:Clock,require(p){
-      if(p.endsWith('/cloud'))return {ensureSchema:async()=>{},runMushroomRetention:async()=>({}),runtime:()=>({DB:adapter}),noStoreJson:(data,status=200)=>Response.json(data,{status})};
+      if(p.endsWith('/cloud'))return {ensureSchema:async()=>{},readMushroomRetentionStatus:async()=>({}),scheduleMushroomRetention:()=>{},runtime:()=>({DB:adapter}),noStoreJson:(data,status=200)=>Response.json(data,{status})};
       if(p.endsWith('/fleet'))return {publicAgent:row=>({id:row.id,name:row.display_name,online:false})};
       if(p.endsWith('/mushroom-policy.mjs'))return {MIN_MUSHROOM_LEVEL:2};
       if(p.endsWith('/scan-plans'))return {COUNTRY_PACK_CATALOG:[{name:'fixture-east',cities:[['east',25,121]]},{name:'fixture-west',cities:[['west',-33,-70]]}]};
