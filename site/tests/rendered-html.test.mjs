@@ -9,6 +9,19 @@ import {
 
 const root = new URL("../", import.meta.url);
 
+test('map type chips hide unknown/mud and put elements before normal colors', async () => {
+  const html = await readFile(new URL('public/map.html',root),'utf8');
+  const lines = html.split(/\r?\n/).filter(line=>
+    /^(const TYPE_NAMES=|const EVENT_TYPE_IDS=|const TYPE_DISPLAY_ORDER=|const LEVEL_NAMES=|function visibleTypeKeys\()/.test(line));
+  const keys=JSON.parse(new Script(lines.join('\n')+';JSON.stringify(visibleTypeKeys())').runInNewContext());
+  assert.deepEqual(keys.slice(0,8),['13','18','17','11','12','7','2','8']);
+  assert.ok(!keys.includes('0')&&!keys.includes('1'));
+  assert.equal(keys.filter(k=>k==='event').length,1);
+  assert.equal(keys.filter(k=>k==='ice').length,1);
+  assert.match(html,/function updateTypes\(\)\{const vals=visibleTypeKeys\(\)/);
+  assert.match(html,/DEFAULT_HIDDEN_TYPE_KEYS=new Set\(\['event'\]\)/);
+});
+
 test("ships the public mushroom map and protected scan console", async () => {
   const [map, adminPage, adminClient, layout] = await Promise.all([
     readFile(new URL("public/map.html", root), "utf8"),
