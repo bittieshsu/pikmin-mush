@@ -43,7 +43,11 @@ Sites owns its own Worker and D1. Do not deploy this helper over the Sites Worke
 change Sites hosting configuration, or reuse platform-owned Cloudflare credentials.
 
 1. From `site/`, use the installed Wrangler to login to the user's Cloudflare account.
-   Select the intended account explicitly if more than one is available.
+   Select the intended account explicitly if more than one is available. If the
+   account has never used Workers, initialize its account-level `workers.dev`
+   subdomain in Workers & Pages first. Otherwise Wrangler may upload the script
+   but fail to attach the cron with Cloudflare error 10063. Keep this helper's
+   `workers_dev` and preview routes disabled.
 2. Create a KV namespace for the helper's alert throttle. Put its returned ID and
    account ID in an ignored `maintenance-worker/wrangler.local.jsonc`, retaining
    the committed config and adding binding `ALERT_STATE`. No tokens in config.
@@ -56,6 +60,10 @@ change Sites hosting configuration, or reuse platform-owned Cloudflare credentia
    a fresh `mushroom-retention-independent` receipt and site pending/failure counts.
    A local test, manual request or deployed code alone does not prove cron works.
 6. Observe two natural triggers. Retain GitHub and upload fallback throughout.
+
+After activation, the D1 `mushroom-retention-independent` timestamp should
+advance at each scheduled minute. Record that timestamp alongside the cleanup
+success and failure counts; a successful deploy or manual POST is insufficient.
 
 Before account login/provisioning, the helper is **prepared, not deployed**. Do not
 claim the independent schedule is active until its natural trigger is observed.
