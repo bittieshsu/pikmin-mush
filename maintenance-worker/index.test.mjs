@@ -9,7 +9,7 @@ function setup(){
 test('cron calls only fixed HTTPS endpoint with dedicated secret and source receipt',async()=>{
  const env=setup(),now=1800000000000;
  await runMaintenance(env,{now,fetch:async(url,options)=>{
-   assert.equal(url,'https://mush.odyliao.cc/api/controller/maintenance');assert.equal(options.redirect,'error');
+   assert.equal(url,'https://mush.odyliao.cc/api/controller/maintenance');assert.equal(options.redirect,'manual');
    assert.equal(options.headers['x-maintenance-event'],'cloudflare-cron');
    assert.equal(options.headers.authorization,`Bearer ${env.MAINTENANCE_TOKEN}`);
    return Response.json({retention:{lastSucceededAt:now/1000,pending:0},maintenanceHealth:{independentLastSucceededAt:now/1000,severity:'healthy'}});
