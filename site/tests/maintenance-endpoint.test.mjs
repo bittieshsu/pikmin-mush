@@ -28,6 +28,7 @@ test('maintenance writes require the dedicated secret and report bounded health'
       maintenanceAuthorized:()=>dedicated,controllerAuthorized:()=>controller,
       ensureSchema:async()=>{},runtime:()=>({DB:db}),
       readMushroomRetentionStatus:async()=>status,
+      checkMaintenanceHealth:async()=>({severity:'healthy'}),
       runMushroomRetention:async()=>{runs++;
         if(completes)status.lastSucceededAt=Math.floor(Date.now()/1000);
         return status},
@@ -56,7 +57,11 @@ test('maintenance writes require the dedicated secret and report bounded health'
     {method:'POST',headers:{'x-maintenance-event':'schedule'}});
   assert.equal((await exports.POST(scheduled)).status,200);
   assert.equal(scheduledWrites,2);
+  const independent=new Request('https://test/api/controller/maintenance',
+    {method:'POST',headers:{'x-maintenance-event':'cloudflare-cron'}});
+  assert.equal((await exports.POST(independent)).status,200);
+  assert.equal(scheduledWrites,4);
   completes=false;status.lastSucceededAt=Math.floor(Date.now()/1000)-1900;
   assert.equal((await exports.POST(scheduled)).status,503);
-  assert.equal(scheduledWrites,2);
+  assert.equal(scheduledWrites,4);
 });

@@ -37,7 +37,7 @@ test('emergency cleanup is off the response path and only runs after an hour wit
  new Script(ts.transpileModule(section,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)
   .runInNewContext({exports,Date:Clock,waitUntil:p=>scheduled.push(p),
    readMushroomRetentionStatus:async()=>({lastSucceededAt:successAt,pending:0,lastBatchSaturated:false}),
-   runMushroomRetention:async()=>{runs++},notifyMissingScheduledMaintenance:async()=>{},console,
+   runMushroomRetention:async()=>{runs++},checkMaintenanceHealth:async()=>{},console,
    MUSHROOM_RETENTION_INTERVAL_SECONDS:300,RETENTION_EMERGENCY_AFTER_SECONDS:3600});
  exports.scheduleRetentionEmergencyFallback();
  await scheduled[0];assert.equal(runs,0);
@@ -58,44 +58,44 @@ test('emergency cleanup keeps draining saturated bounded batches',async()=>{
   .runInNewContext({exports,Date:Clock,waitUntil:p=>scheduled.push(p),
    readMushroomRetentionStatus:async()=>({lastSucceededAt:Math.floor(now/1000)-60,
      pending:0,lastBatchSaturated:true}),runMushroomRetention:async()=>{runs++},
-   notifyMissingScheduledMaintenance:async()=>{},console,
+   checkMaintenanceHealth:async()=>{},console,
    MUSHROOM_RETENTION_INTERVAL_SECONDS:300,RETENTION_EMERGENCY_AFTER_SECONDS:3600});
  exports.scheduleRetentionEmergencyFallback();await scheduled[0];assert.equal(runs,1);
  now+=300001;exports.scheduleRetentionEmergencyFallback();await scheduled[1];assert.equal(runs,2);
 });
 
-test('missing scheduled cleanup alerts after three hours and repeats at most daily',async()=>{
+test('maintenance alerts dedupe each severity and retry failed sends after five minutes',async()=>{
  const source=readFileSync(new URL('../lib/cloud.ts',import.meta.url),'utf8');
- const section=source.slice(source.indexOf('async function notifyMissingScheduledMaintenance'),
+ const section=source.slice(source.indexOf('async function notifyMaintenanceHealth'),
    source.indexOf('// GitHub\'s scheduled event'));
- let scheduledAt=0,alertAt=0,sends=0;
+ let sends=0,ok=true;const records=new Map();
  const db={prepare(sql){return {
    bind(...args){this.args=args;return this},
-   async first(){assert.match(sql,/mushroom-retention-scheduled/);return scheduledAt?{last_run_at:scheduledAt}:null},
    async run(){
-     if(sql.startsWith('UPDATE')){
-       const [now,cutoff]=this.args;
-       if(alertAt>=cutoff)return {meta:{changes:0}};
-       alertAt=now;return {meta:{changes:1}};
+     if(sql.includes('SET last_run_at')){
+       const [now,name,attemptCutoff,sentCutoff]=this.args;
+       const row=records.get(name)??{attempt:0,sent:0};
+       if(row.attempt>=attemptCutoff||row.sent>=sentCutoff)return {meta:{changes:0}};
+       row.attempt=now;records.set(name,row);return {meta:{changes:1}};
      }
+     if(sql.includes('SET last_succeeded_at'))records.get(this.args[1]).sent=this.args[0];
      return {meta:{changes:0}};
    },
  }}};
  const exports={};
  new Script(`${ts.transpileModule(section,{compilerOptions:{module:ts.ModuleKind.CommonJS,
-   target:ts.ScriptTarget.ES2022}}).outputText}\nexports.notify=notifyMissingScheduledMaintenance;`)
+   target:ts.ScriptTarget.ES2022}}).outputText}\nexports.notify=notifyMaintenanceHealth;`)
   .runInNewContext({exports,runtime:()=>({DB:db,MAINTENANCE_DISCORD_WEBHOOK:
     'https://discord.com/api/webhooks/test'}),
-   RETENTION_SCHEDULE_ALERT_AFTER_SECONDS:3*3600,
    RETENTION_SCHEDULE_ALERT_REPEAT_SECONDS:24*3600,
-   fetch:async()=>{sends++;return {ok:true}},AbortSignal,console});
- const t=1800000000000;
- scheduledAt=Math.floor(t/1000)-2*3600;
- await exports.notify(t);assert.equal(sends,0);
- scheduledAt=Math.floor(t/1000)-3*3600-1;
- await exports.notify(t);assert.equal(sends,1);
- await exports.notify(t+4*3600*1000);assert.equal(sends,1);
- await exports.notify(t+24*3600*1000+1000);assert.equal(sends,2);
- scheduledAt=Math.floor((t+25*3600*1000)/1000);
- await exports.notify(t+25*3600*1000);assert.equal(sends,2);
+   maintenanceMessage:()=> 'classified alert',
+   fetch:async()=>{sends++;return {ok}},AbortSignal,console});
+ const t=1800000000;
+ await exports.notify(t,{}, {severity:'healthy'});assert.equal(sends,0);
+ await exports.notify(t,{}, {severity:'degraded'});assert.equal(sends,1);
+ await exports.notify(t+4*3600,{}, {severity:'degraded'});assert.equal(sends,1);
+ ok=false;await exports.notify(t+10,{}, {severity:'critical'});assert.equal(sends,2);
+ await exports.notify(t+20,{}, {severity:'critical'});assert.equal(sends,2);
+ ok=true;await exports.notify(t+311,{}, {severity:'critical'});assert.equal(sends,3);
+ await exports.notify(t+25*3600,{}, {severity:'degraded'});assert.equal(sends,4);
 });

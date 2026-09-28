@@ -2,9 +2,9 @@ name: Mushroom maintenance
 
 on:
   schedule:
-    # Keep cleanup independent of map traffic and the user's Windows PC.
+    # Separate fallback; primary is the independent Cloudflare scheduler.
     - cron: '7,22,37,52 * * * *'
-    # A separate hourly health check limits alert volume during outages.
+    # Preserve the existing independent hourly fleet-health warning.
     - cron: '13 * * * *'
   workflow_dispatch:
 
@@ -21,77 +21,46 @@ jobs:
     timeout-minutes: 5
     env:
       MAINTENANCE_TOKEN: ${{ secrets.MUSHROOM_MAINTENANCE_TOKEN }}
-      DISCORD_WEBHOOK: ${{ secrets.MUSHROOM_MAINTENANCE_DISCORD_WEBHOOK }}
-      SCHEDULE: ${{ github.event.schedule }}
       EVENT_NAME: ${{ github.event_name }}
+      SCHEDULE: ${{ github.event.schedule }}
+      DISCORD_WEBHOOK: ${{ secrets.MUSHROOM_MAINTENANCE_DISCORD_WEBHOOK }}
     steps:
-      - name: Run bounded maintenance and check fleet health
+      - name: Run bounded maintenance
         shell: bash
         run: |
           set -euo pipefail
-          request_failed=0
-          response=''
           if [[ -z "$MAINTENANCE_TOKEN" ]]; then
-            request_failed=1
-          else
-            response="$(curl --fail-with-body --silent --show-error --max-time 90 \
-              -X POST -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
-              -H "X-Maintenance-Event: $EVENT_NAME" \
-              -H 'Accept: application/json' \
-              https://mush.odyliao.cc/api/controller/maintenance)" || request_failed=1
+            echo 'Maintenance credential missing' >&2
+            exit 1
           fi
-          REQUEST_FAILED="$request_failed" RESPONSE="$response" python3 - <<'PY'
-          import json, os, sys, time, urllib.error, urllib.request
-          hourly = os.environ.get('SCHEDULE') == '13 * * * *'
-          problems = []
-          failed = False
-          try:
-              if os.environ['REQUEST_FAILED'] != '0':
-                  raise ValueError('maintenance request failed')
-              data = json.loads(os.environ['RESPONSE'])
-              retention, alerts = data['retention'], data['alerts']
-              print('retention', {key: retention[key] for key in
-                     ('lastSucceededAt', 'lastDeleted', 'pending', 'lastBatchSaturated',
-                      'consecutiveFailures', 'lastDurationMs')})
-              if alerts['maintenanceStale'] or alerts['maintenanceFailing']:
-                  problems.append('清理未正常完成')
-              # Reaching one bounded history batch is not proof of backlog.
-              # The exact mushroom pending count is the actionable signal.
-              if retention['pending'] > 0:
-                  problems.append(f"蘑菇過期資料待刪：{retention['pending']}")
-              if alerts['uploadSilentAgents']:
-                  problems.append('兩小時無成功上傳：' + ', '.join(alerts['uploadSilentAgents']))
-          except Exception:
-              print('Maintenance request failed', file=sys.stderr)
-              problems = ['定時清理請求失敗；請檢查 GitHub Actions 與站台紀錄']
-              failed = True
-          if not hourly or not problems:
-              sys.exit(1 if failed else 0)
-          message = '【蘑菇系統維護警示】\n' + '\n'.join(problems)
-          webhook = os.environ.get('DISCORD_WEBHOOK', '')
-          if not webhook:
-              print('Discord webhook secret is missing', file=sys.stderr)
-              sys.exit(1)
-          request = urllib.request.Request(webhook, data=json.dumps({'content': message}).encode(),
-                                           headers={'Content-Type': 'application/json'}, method='POST')
-          for attempt in range(2):
+          response="$(curl --fail-with-body --silent --show-error --max-time 90 \
+            -X POST -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
+            -H "X-Maintenance-Event: $EVENT_NAME" \
+            -H 'Accept: application/json' \
+            https://mush.odyliao.cc/api/controller/maintenance)"
+          RESPONSE="$response" python3 - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          data = json.loads(os.environ['RESPONSE'])
+          retention = data['retention']
+          assert time.time() - retention['lastSucceededAt'] <= 300, 'stale cleanup receipt'
+          print('retention', {key: retention[key] for key in
+                ('lastSucceededAt', 'lastDeleted', 'pending', 'lastBatchSaturated',
+                 'consecutiveFailures', 'lastDurationMs')})
+          # Classify/throttle notifications centrally; do not send duplicate alerts.
+          print('maintenanceHealth', data.get('maintenanceHealth', {}).get('severity', 'legacy'))
+          silent = data['alerts']['uploadSilentAgents']
+          if os.environ.get('SCHEDULE') == '13 * * * *' and silent:
+              webhook = os.environ.get('DISCORD_WEBHOOK', '')
+              if not webhook:
+                  raise SystemExit('Fleet alert webhook missing')
+              message = '【蘑菇機隊維護警示】兩小時無成功上傳：' + ', '.join(silent)
+              request = urllib.request.Request(webhook,
+                  data=json.dumps({'content': message, 'allowed_mentions': {'parse': []}}).encode(),
+                  headers={'Content-Type': 'application/json'}, method='POST')
               try:
                   with urllib.request.urlopen(request, timeout=20) as reply:
                       if reply.status not in (200, 204):
-                          raise RuntimeError('Discord alert was not accepted')
-                  break
-              except urllib.error.HTTPError as error:
-                  if error.code == 429 and attempt == 0:
-                      try:
-                          delay = float(error.headers.get('Retry-After', '1'))
-                      except ValueError:
-                          delay = 1
-                      time.sleep(min(max(delay, 0), 10))
-                      continue
-                  print(f'::warning::Discord maintenance alert HTTP {error.code}; cleanup request result is separate', file=sys.stderr)
-                  break
+                          raise RuntimeError('delivery rejected')
               except Exception:
-                  print('::warning::Discord maintenance alert failed; cleanup request result is separate', file=sys.stderr)
-                  break
-          sys.exit(1 if failed else 0)
+                  print('::warning::Fleet alert delivery failed; cleanup result is separate')
           PY

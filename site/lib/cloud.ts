@@ -3,6 +3,7 @@ import { isUsefulMushroomLevel } from "./mushroom-policy.mjs";
 import { EVENT_SPOT_SEED } from "./event-spots";
 import { observationStatements } from "./observations.mjs";
 import { catalogueStatements, CATALOGUE_STATE, CATALOGUE_REVISION } from "./catalogue-seed.mjs";
+import { maintenanceHealth, maintenanceMessage } from "./maintenance-health.mjs";
 
 export type MushroomRow = {
   id: string;
@@ -25,7 +26,6 @@ const MUSHROOM_RETENTION_INTERVAL_SECONDS = 5 * 60;
 const RETENTION_EMERGENCY_AFTER_SECONDS = 60 * 60;
 // GitHub schedule events can be delayed or dropped. Keep the one-hour cleanup
 // fallback, but only page the operator for a sustained scheduling gap.
-const RETENTION_SCHEDULE_ALERT_AFTER_SECONDS = 3 * 60 * 60;
 const RETENTION_SCHEDULE_ALERT_REPEAT_SECONDS = 24 * 60 * 60;
 const MUSHROOM_RETENTION_BATCH_SIZE = 1_000;
 const MUSHROOM_INVALIDATION_BATCH_SIZE = 250;
@@ -707,30 +707,56 @@ export async function readMushroomRetentionStatus(): Promise<MushroomRetentionSt
   return retentionStatus(row);
 }
 
-async function notifyMissingScheduledMaintenance(nowMs: number): Promise<void> {
+export async function checkMaintenanceHealth(nowMs = Date.now()) {
+  const db = runtime().DB;
+  const now = Math.floor(nowMs / 1_000);
+  const status = retentionStatus(await db.prepare(`SELECT * FROM maintenance_state
+    WHERE name='mushroom-retention'`).first());
+  await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
+    VALUES ('mushroom-retention-backlog')`).run();
+  if (status.pending > 0) {
+    await db.prepare(`UPDATE maintenance_state SET last_run_at=?
+      WHERE name='mushroom-retention-backlog' AND last_run_at=0`).bind(now).run();
+  } else {
+    await db.prepare(`UPDATE maintenance_state SET last_run_at=0
+      WHERE name='mushroom-retention-backlog' AND last_run_at<>0`).run();
+  }
+  const states = await db.prepare(`SELECT name,last_run_at FROM maintenance_state
+    WHERE name IN ('mushroom-retention-scheduled','mushroom-retention-independent','mushroom-retention-backlog')`)
+    .all<{ name: string; last_run_at: number }>();
+  const times = new Map((states.results ?? []).map(r => [r.name, r.last_run_at]));
+  const health = maintenanceHealth(now, status, times.get('mushroom-retention-scheduled'),
+    times.get('mushroom-retention-independent'), times.get('mushroom-retention-backlog'));
+  await notifyMaintenanceHealth(now, status, health);
+  return health;
+}
+
+async function notifyMaintenanceHealth(now: number, status: MushroomRetentionStatus,
+  health: ReturnType<typeof maintenanceHealth>): Promise<void> {
+  if (health.severity === 'healthy') return;
   const webhook = runtime().MAINTENANCE_DISCORD_WEBHOOK ?? "";
   if (!/^https:\/\/discord\.com\/api\/webhooks\//.test(webhook)) return;
   const db = runtime().DB;
-  const now = Math.floor(nowMs / 1_000);
-  const scheduled = await db.prepare(`SELECT last_run_at FROM maintenance_state
-    WHERE name='mushroom-retention-scheduled'`).first<{ last_run_at: number }>();
-  if (scheduled?.last_run_at && now - scheduled.last_run_at < RETENTION_SCHEDULE_ALERT_AFTER_SECONDS) return;
+  // Different keys let real failure escalate immediately after a degraded notice.
+  const name = `mushroom-retention-alert-${health.severity}`;
   await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
-    VALUES ('mushroom-retention-schedule-alert')`).run();
+    VALUES (?)`).bind(name).run();
   const claim = await db.prepare(`UPDATE maintenance_state SET last_run_at=?
-    WHERE name='mushroom-retention-schedule-alert' AND last_run_at<?`)
-    .bind(now, now - RETENTION_SCHEDULE_ALERT_REPEAT_SECONDS).run();
+    WHERE name=? AND last_run_at<? AND last_succeeded_at<?`)
+    .bind(now, name, now - 5 * 60, now - RETENTION_SCHEDULE_ALERT_REPEAT_SECONDS).run();
   if (Number(claim.meta.changes ?? 0) === 0) return;
   try {
     const response = await fetch(webhook, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content: "【蘑菇維護排程警示】GitHub 定時清理超過三小時沒有成功回報；站台已由 Agent 上傳啟動安全備援。請檢查 GitHub Actions 排程。同一問題一天內不重複提醒。" }),
+      body: JSON.stringify({ content: maintenanceMessage(health, status), allowed_mentions: { parse: [] } }),
       signal: AbortSignal.timeout(7_000),
     });
     if (!response.ok) throw new Error("discord rejected alert");
-    console.info(JSON.stringify({ event: "mushroom_retention_scheduler_alert_sent" }));
+    await db.prepare(`UPDATE maintenance_state SET last_succeeded_at=? WHERE name=?`)
+      .bind(now, name).run();
+    console.info(JSON.stringify({ event: "mushroom_retention_health_alert_sent", severity: health.severity }));
   } catch {
-    console.warn(JSON.stringify({ event: "mushroom_retention_scheduler_alert_failed" }));
+    console.warn(JSON.stringify({ event: "mushroom_retention_health_alert_failed", severity: health.severity }));
   }
 }
 
@@ -746,8 +772,8 @@ export function scheduleRetentionEmergencyFallback(): void {
     const backlogged = status.pending > 0 || status.lastBatchSaturated;
     if (!backlogged && status.lastSucceededAt &&
       now / 1_000 - status.lastSucceededAt < RETENTION_EMERGENCY_AFTER_SECONDS) return;
-    await runMushroomRetention();
-    await notifyMissingScheduledMaintenance(now);
+    try { await runMushroomRetention(); }
+    finally { await checkMaintenanceHealth(Date.now()); }
     console.warn(JSON.stringify({ event: "mushroom_retention_emergency_attempted" }));
   })().catch(() => {
     console.warn(JSON.stringify({ event: "mushroom_retention_emergency_failed" }));
