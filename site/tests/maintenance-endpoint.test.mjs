@@ -4,6 +4,20 @@ import {readFileSync} from 'node:fs';
 import {Script} from 'node:vm';
 import ts from 'typescript';
 
+test('independent source is bound to its own key, not a forged header',()=>{
+ const source=readFileSync(new URL('../lib/cloud.ts',import.meta.url),'utf8');
+ const section=source.slice(source.indexOf('export function maintenanceAuthorized'),source.indexOf('export function adminEmails'));
+ const exports={};let independent='b'.repeat(32);
+ new Script(ts.transpileModule(section,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)
+   .runInNewContext({exports,runtime:()=>({MAINTENANCE_TOKEN:'a'.repeat(32),INDEPENDENT_MAINTENANCE_TOKEN:independent}),safeEqual:(a,b)=>a===b});
+ const request=(token,event)=>new Request('https://test',{headers:{authorization:`Bearer ${token}`,'x-maintenance-event':event}});
+ assert.equal(exports.maintenanceAuthorized(request('a'.repeat(32),'schedule')),true);
+ assert.equal(exports.maintenanceAuthorized(request('a'.repeat(32),'cloudflare-cron')),false);
+ assert.equal(exports.maintenanceAuthorized(request('b'.repeat(32),'cloudflare-cron')),true);
+ assert.equal(exports.maintenanceAuthorized(request('b'.repeat(32),'schedule')),false);
+ independent='';assert.equal(exports.maintenanceAuthorized(request('','cloudflare-cron')),false);
+});
+
 test('maintenance writes require the dedicated secret and report bounded health', async () => {
   let dedicated=false, controller=false, runs=0, scheduledWrites=0, completes=true;
   const now=Date.now();

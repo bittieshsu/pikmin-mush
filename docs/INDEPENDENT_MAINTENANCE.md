@@ -4,7 +4,7 @@
 
 - Main: dedicated Cloudflare Worker `maintenance-worker/`, every 15 minutes
   (UTC minutes 2,17,32,47). No public route, Sites migration, or phone dependency.
-- Secondary: existing GitHub Actions maintenance workflow; same dedicated secret.
+- Secondary: existing GitHub Actions maintenance workflow; its existing secret is unchanged.
 - Final fallback: Agent upload background task, after one hour without successful
   cleanup or while bounded batches need draining. Upload response does not wait.
 - All paths share the existing D1 five-minute lease and bounded deletion limits.
@@ -47,8 +47,10 @@ change Sites hosting configuration, or reuse platform-owned Cloudflare credentia
 2. Create a KV namespace for the helper's alert throttle. Put its returned ID and
    account ID in an ignored `maintenance-worker/wrangler.local.jsonc`, retaining
    the committed config and adding binding `ALERT_STATE`. No tokens in config.
-3. Deploy first with `triggers.crons=[]`; install `MAINTENANCE_TOKEN` (same dedicated
-   secret as the Site) and `DISCORD_WEBHOOK` via Wrangler secret stdin, never argv.
+3. Deploy first with `triggers.crons=[]`; generate a new scoped secret and install
+   it as `INDEPENDENT_MAINTENANCE_TOKEN` on Sites, `MAINTENANCE_TOKEN` on the helper.
+   Install `DISCORD_WEBHOOK` via Wrangler secret stdin, never argv. Preserve the
+   existing GitHub/Sites `MAINTENANCE_TOKEN`; never extract GitHub secrets through CI.
 4. Publish the Site endpoint changes; verify authenticated POST and schema tests.
 5. Deploy helper with minutes2,17,32,47 enabled. Verify real scheduled execution,
    a fresh `mushroom-retention-independent` receipt and site pending/failure counts.

@@ -29,31 +29,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$MAINTENANCE_TOKEN" ]]; then
-            echo 'Maintenance credential missing' >&2
-            exit 1
-          fi
+          request_failed=0
           response="$(curl --fail-with-body --silent --show-error --max-time 90 \
             -X POST -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
             -H "X-Maintenance-Event: $EVENT_NAME" \
             -H 'Accept: application/json' \
-            https://mush.odyliao.cc/api/controller/maintenance)"
-          RESPONSE="$response" python3 - <<'PY'
+            https://mush.odyliao.cc/api/controller/maintenance)" || request_failed=1
+          REQUEST_FAILED="$request_failed" RESPONSE="$response" python3 - <<'PY'
           import json, os, time, urllib.request, urllib.error
-          data = json.loads(os.environ['RESPONSE'])
-          retention = data['retention']
-          assert time.time() - retention['lastSucceededAt'] <= 300, 'stale cleanup receipt'
-          print('retention', {key: retention[key] for key in
-                ('lastSucceededAt', 'lastDeleted', 'pending', 'lastBatchSaturated',
-                 'consecutiveFailures', 'lastDurationMs')})
-          # Classify/throttle notifications centrally; do not send duplicate alerts.
-          print('maintenanceHealth', data.get('maintenanceHealth', {}).get('severity', 'legacy'))
-          silent = data['alerts']['uploadSilentAgents']
-          if os.environ.get('SCHEDULE') == '13 * * * *' and silent:
+          failed = False
+          message = ''
+          try:
+              assert os.environ['REQUEST_FAILED'] == '0'
+              data = json.loads(os.environ['RESPONSE'])
+              retention = data['retention']
+              assert time.time() - retention['lastSucceededAt'] <= 300, 'stale cleanup receipt'
+              print('retention', {key: retention[key] for key in
+                    ('lastSucceededAt', 'lastDeleted', 'pending', 'lastBatchSaturated',
+                     'consecutiveFailures', 'lastDurationMs')})
+              # Classify/throttle cleanup notifications centrally.
+              print('maintenanceHealth', data.get('maintenanceHealth', {}).get('severity', 'legacy'))
+              silent = data['alerts']['uploadSilentAgents']
+              if silent:
+                  message = '【蘑菇機隊維護警示】兩小時無成功上傳：' + ', '.join(silent)
+          except Exception:
+              failed = True
+              message = '【蘑菇清理連線異常】GitHub 無法取得清理成功回報；請檢查站台或憑證，不能假設備援正常。'
+          if os.environ.get('SCHEDULE') == '13 * * * *' and message:
               webhook = os.environ.get('DISCORD_WEBHOOK', '')
               if not webhook:
                   raise SystemExit('Fleet alert webhook missing')
-              message = '【蘑菇機隊維護警示】兩小時無成功上傳：' + ', '.join(silent)
               request = urllib.request.Request(webhook,
                   data=json.dumps({'content': message, 'allowed_mentions': {'parse': []}}).encode(),
                   headers={'Content-Type': 'application/json'}, method='POST')
@@ -63,4 +68,5 @@ jobs:
                           raise RuntimeError('delivery rejected')
               except Exception:
                   print('::warning::Fleet alert delivery failed; cleanup result is separate')
+          raise SystemExit(1 if failed else 0)
           PY

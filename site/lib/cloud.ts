@@ -51,6 +51,7 @@ type RuntimeEnv = {
   AGENT_TOKEN?: string;
   CONTROLLER_TOKEN?: string;
   MAINTENANCE_TOKEN?: string;
+  INDEPENDENT_MAINTENANCE_TOKEN?: string;
   MAINTENANCE_DISCORD_WEBHOOK?: string;
   ADMIN_EMAILS?: string;
   COPY_AUDIT_HASH_KEY?: string;
@@ -502,7 +503,10 @@ export function controllerAuthorized(request: Request) {
 }
 
 export function maintenanceAuthorized(request: Request) {
-  const token = runtime().MAINTENANCE_TOKEN ?? "";
+  // Bind source acknowledgement to a separate secret, preserving GitHub's key.
+  const token = request.headers.get('x-maintenance-event') === 'cloudflare-cron'
+    ? runtime().INDEPENDENT_MAINTENANCE_TOKEN ?? ''
+    : runtime().MAINTENANCE_TOKEN ?? '';
   return token.length >= 32 &&
     safeEqual(request.headers.get("authorization") ?? "", `Bearer ${token}`);
 }
