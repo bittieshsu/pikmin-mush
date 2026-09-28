@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: node --test ../maintenance-worker/index.test.mjs
       - run: node scripts/audit-lockfile.mjs
       - name: Validate Android Agent shell
         working-directory: .

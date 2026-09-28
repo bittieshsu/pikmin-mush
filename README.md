@@ -20,6 +20,7 @@ Pikmin Bloom 蘑菇全球掃描、集中排程與公開地圖系統。Root Andro
 - 全域掃描預設為 **1 km 偏移網格**，每個 cycle 依四個相位改變網格原點，降低重複涵蓋。後台另提供固定 **500 m 精細模式**。
 - 每日 `04:00`、`12:00`、`20:00`（Asia/Taipei）重建輪替工作，每段 8 小時。它是 request-driven：時間到後由 Agent 或後台的下一個請求觸發，並由 D1 狀態鎖保證每時段只執行一次。
 - Codex Sites 提供網站與 Worker，D1 保存掃描與排程資料。Windows `scanner/` 僅保留作相容與維修用途。
+- 資料清理採獨立 Cloudflare 排程、GitHub 備援與 Agent 上傳兜底；分級告警與部署／自然觸發驗收見 [INDEPENDENT_MAINTENANCE.md](docs/INDEPENDENT_MAINTENANCE.md)。獨立排程需完成帳號授權及正式驗收後才算啟用。
 
 ## 使用功能
 

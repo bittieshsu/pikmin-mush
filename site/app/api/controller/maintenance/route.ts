@@ -1,6 +1,7 @@
 import {
   controllerAuthorized, ensureSchema, maintenanceAuthorized,
   noStoreJson, readMushroomRetentionStatus, runMushroomRetention, runtime,
+  checkMaintenanceHealth,
 } from "../../../../lib/cloud";
 
 const UPLOAD_STALE_MS = 2 * 60 * 60 * 1000;
@@ -58,16 +59,19 @@ export async function POST(request: Request) {
       Date.now() / 1_000 - completed.lastSucceededAt > 5 * 60) {
       throw new Error("maintenance did not complete recently");
     }
-    if (request.headers.get("x-maintenance-event") === "schedule") {
+    const source = request.headers.get("x-maintenance-event");
+    if (source === "schedule" || source === "cloudflare-cron") {
+      const name = source === "schedule" ? 'mushroom-retention-scheduled' : 'mushroom-retention-independent';
       const db = runtime().DB;
       await db.prepare(`INSERT OR IGNORE INTO maintenance_state (name)
-        VALUES ('mushroom-retention-scheduled')`).run();
+        VALUES (?)`).bind(name).run();
       await db.prepare(`UPDATE maintenance_state SET last_run_at=?
-        WHERE name='mushroom-retention-scheduled'`)
-        .bind(Math.floor(Date.now() / 1_000)).run();
+        WHERE name=?`).bind(Math.floor(Date.now() / 1_000), name).run();
     }
-    return noStoreJson(await snapshot());
+    const health = await checkMaintenanceHealth();
+    return noStoreJson({ ...await snapshot(), maintenanceHealth: health });
   } catch {
+    try { await checkMaintenanceHealth(); } catch { /* caller records failed request */ }
     return noStoreJson({ error: "maintenance failed" }, 503);
   }
 }

@@ -27,6 +27,8 @@ site/.wrangler/
 site/dist/
 site/.sites-*.log
 site/.git-site-backup/
+maintenance-worker/wrangler.local.jsonc
+maintenance-worker/.wrangler/
 site-deploy*.tar.gz
 
 # Native build and reverse-engineering inputs
