@@ -1,5 +1,13 @@
 # Pikmin Bloom 蘑菇搜尋研究 — WORKLOG
 
+## 2026-10-02 — 田納西 Nashville MINI WALK 金盆
+
+- 新增使用者提供的七個 GPS 與飾品對應，原有金盆資料不刪除；每點每14天一次，community標記清楚區分座標非官方確認。
+- 使用者提供10/02–11/01，官方公告為當地10/03 10:00–11/01 18:00。保留使用者期間並在資格欄明列官方時段與以遊戲為準；結束日採America/Chicago換冬令後UTC-6，避免偏移一小時。
+- catalogue revision升至2026100201，以既有新版原子seed流程更新，不修改已套用migration或蘑菇掃描排程；前端inline script與CSP無變更。
+- 新增七座標、14天週期、來源標記、日期邊界、既有點保留及revision回歸測試。發布前按RELEASE_GATES執行網站測試與production audit。
+- 發布安全門檻所需的Next同系列修補版16.3.8獨立commit；不混入未完工的換區功能或手機修正。
+
 ## 2026-09-22 — Issue #95 公開地圖查詢負載改善
 
 - 線上補正：PR #103／Sites 86 的分頁與入站正常，但相同 POP 連續請求仍為 cache MISS。官方 Workers-for-Platforms 規則停用 `caches.default`，改用獨立命名 cache；加 16 筆／約 8 MiB、15 秒不延展的記憶體回退及快取來源標示，不放寬平台隔離權限。
