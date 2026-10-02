@@ -29,7 +29,28 @@ const make = (spotKind: "permanent" | "limited", spot: SpotInput): EventSpotSeed
 const permanent = (spot: SpotInput) => make("permanent", spot);
 const limited = (spot: SpotInput) => make("limited", spot);
 
+// User-supplied GPS/rewards; official notice confirms seven spots and 14-day
+// cooldown but announces Oct 3 10:00 CT through Nov 1 18:00 CT. Keep the user's
+// Oct 2 availability explicitly attributed, not presented as official.
+const nashville = (id: string, lat: number, lng: number, reward: string) => limited({
+  id: `us-nashville-mini-walk-${id}`, country: "美國", city: "田納西州－納許維爾 Nashville",
+  name: `田納西 MINI WALK — ${reward}`, lat, lng, rewardKind: "gold_seedling",
+  rewardSummary: `${reward}飾品金色花苗`, cooldownNote: "每個地點每 14 天可領取 1 次",
+  startAt: seconds("2026-10-02T00:00:00-05:00"), endAt: seconds("2026-11-01T23:59:59-06:00"),
+  eligibilityNote: "使用者提供期間：10/02–11/01；官方公告：當地10/03 10:00至11/01 18:00；實際開放以遊戲為準",
+  coordinateNote: "座標與飾品對應由使用者提供，非官方座標；尚未實地複核，請以遊戲地圖確認",
+  verificationStatus: "community", sourceTitle: "Pikmin Bloom Nashville 2026 MINI WALK 官方公告；座標由使用者提供",
+  sourceUrl: "https://pikminbloom.com/es/news/oct26-nashville", lastVerifiedAt: seconds("2026-10-02T00:00:00Z"),
+});
+
 export const EVENT_SPOT_SEED: EventSpotSeed[] = [
+  nashville("gift-sticker", 36.1590240, -86.7765040, "禮物貼紙"),
+  nashville("orchestra", 36.1601300, -86.7757420, "管弦樂器"),
+  nashville("chocolate", 36.1609840, -86.7753650, "巧克力"),
+  nashville("photo-button", 36.1624460, -86.7740530, "照片鈕扣"),
+  nashville("ice-cream-2024", 36.1627440, -86.7759540, "冰淇淋2024"),
+  nashville("brass", 36.1615850, -86.7778660, "銅管樂器"),
+  nashville("restaurant", 36.1607850, -86.7798360, "餐廳"),
   // Nintendo permanent locations
   permanent({ id: "jp-nintendo-tokyo", country: "日本", city: "東京", name: "Nintendo TOKYO（澀谷 PARCO 6F）", lat: 35.661989, lng: 139.698784, rewardKind: "gold_seedling", rewardSummary: "任天堂直營店金色花苗", cooldownNote: "每 30 天 1 次" }),
   permanent({ id: "jp-nintendo-osaka", country: "日本", city: "大阪", name: "Nintendo OSAKA（大丸梅田店 13F）", lat: 34.70135, lng: 135.497, rewardKind: "gold_seedling", rewardSummary: "任天堂直營店金色花苗", cooldownNote: "每 30 天 1 次" }),
