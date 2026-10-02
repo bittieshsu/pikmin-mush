@@ -6,6 +6,13 @@ import { CATALOGUE_REVISION } from '../lib/catalogue-seed.mjs';
 const text = readFileSync(new URL('../lib/event-spots.ts',import.meta.url),'utf8');
 const js = ts.transpileModule(text,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
 const exported = {}; new Function('exports',js)(exported);
+test('Nashville period renders in Central time without changing existing cities',()=>{
+  const html=readFileSync(new URL('../public/event-spots.html',import.meta.url),'utf8');
+  const zone = new Function('return '+html.match(/const zone=(.*?);const fmt=/)[1])();
+  assert.equal(zone({country:'美國',city:'田納西州－納許維爾 Nashville'}),'America/Chicago');
+  assert.equal(zone({country:'美國',city:'紐約'}),'America/New_York');
+  assert.equal(zone({country:'美國',city:'西雅圖'}),'America/Los_Angeles');
+});
 test('Nashville adds seven exact user coordinates with distinct rewards and provenance',()=>{
   const rows=exported.EVENT_SPOT_SEED.filter(s=>s.id.startsWith('us-nashville-mini-walk-'));
   assert.equal(rows.length,7);
