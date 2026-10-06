@@ -1,4 +1,11 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+export const agentUploadReceipts = sqliteTable("agent_upload_receipts", {
+  agentId: text("agent_id").notNull(), streamId: text("stream_id").notNull(),
+  startOffset: integer("start_offset").notNull(), endOffset: integer("end_offset").notNull(),
+  bodyHash: text("body_hash").notNull(), acceptedRows: integer("accepted_rows").notNull(),
+  receivedAt: integer("received_at").notNull(),
+}, t => [primaryKey({columns:[t.agentId,t.streamId,t.startOffset,t.endOffset]})]);
 
 export const agentPowerPauses = sqliteTable('agent_power_pauses', {
   key:text('key').primaryKey(), agentId:text('agent_id').notNull(),
