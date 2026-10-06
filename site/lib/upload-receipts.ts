@@ -1,5 +1,13 @@
 import { mushroomUpsertStatements, parseTsv, plain, runtime } from "./cloud";
 
+// A rejected monotonic range deliberately violates NOT NULL, aborting the whole
+// D1 batch. Keep the guard inside the INSERT, not in a racy preflight SELECT.
+// Avoid triggers: the Sites migration publisher rejected BEGIN/END SQL parsing.
+export const RECEIPT_INSERT = `INSERT INTO agent_upload_receipts
+  SELECT CASE WHEN ? < COALESCE((SELECT end_offset FROM agent_upload_receipts
+    WHERE agent_id=? AND stream_id=? ORDER BY start_offset DESC LIMIT 1),0)
+    THEN NULL ELSE ? END,?,?,?,?,?,?`;
+
 // Opt-in protocol: one bounded atomic D1 batch, not a transaction per TSV row.
 // Receipts are NOT expired until a safe acknowledged-stream compaction exists.
 // Canary first; do not enable fleet-wide without measuring receipt growth.
@@ -34,8 +42,8 @@ export async function receiveUpload(request: Request, agent: UploadAgent,
   if (state?.partial_text) return plain("legacy partial state pending\n",409);
   const rows = parseTsv(incoming);
   const at = Date.now();
-  const statements = [db.prepare(`INSERT INTO agent_upload_receipts VALUES (?,?,?,?,?,?,?)`)
-    .bind(agent.id,stream,start,end,hash,rows.length,at),
+  const statements = [db.prepare(RECEIPT_INSERT)
+    .bind(start,agent.id,stream,agent.id,stream,start,end,hash,rows.length,at),
     ...mushroomUpsertStatements(db,rows,agent.id,agent.current_target_id,Math.floor(at/1000)),
     db.prepare(`UPDATE scan_agents SET uploaded_rows=uploaded_rows+?,
       uploaded_bytes=uploaded_bytes+?,last_data_at=CASE WHEN ?>0 THEN ? ELSE last_data_at END,
