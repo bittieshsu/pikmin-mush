@@ -24,7 +24,9 @@ against the committed receipt after the losing transaction aborts.
 Receipt uniqueness and monotonic ranges are DB-enforced, not just a preflight
 query. The range guard uses the existing primary-key prefix and reverse lookup
 of the latest start, not a growing scan through all prior ranges.
-The table and trigger are owned by migration 0023, not runtime schema creation.
+The table is owned by migration 0023, not runtime schema creation. The guarded
+INSERT enforces monotonic ranges through NOT NULL: a stale range aborts the
+whole batch, rather than skipping the receipt but writing unprotected data.
 
 The raw TSV parser and accepted-row definition are unchanged. Ingestion time is
 still the server's first successful receipt, not an inferred phone scan time.
@@ -55,6 +57,16 @@ of sudden filesystem/power loss; integrity/offset checks fail closed afterwards.
 
 ## Release, canary and rollback
 
+Sites v103 failed before publishing with `incomplete input: SQLITE_ERROR`.
+The sole new migration 0023 contained a CREATE TRIGGER BEGIN/END statement;
+it passed real local D1, but the hosted migration path rejected the input.
+The post-failure live database overview still lacked agent_upload_receipts:
+the new table was not applied. Only that failed/unapplied migration's trigger
+was removed; its table/snapshot columns and prior applied migrations are unchanged.
+The guarded INSERT provides the same transaction-aborting range enforcement.
+Do not redeploy the failed v103 archive or activate phones before a successful
+corrective release. Local D1 guard and rollback tests were rerun after correction.
+
 Server must be released with its migration before any phone opt-in. Confirm the
 existing real phone identity, script/config backup, empty legacy partial state,
 and a safe stopped shell/in-flight transport boundary before reload. Do not
@@ -80,7 +92,7 @@ server while pending batches exist. Keep additive migrations and accepted data.
 
 Local checks: site `npm test`, lint, production audit; phone receipt/chunk,
 legacy-command and power-guard integration tests. The suite includes real local
-D1 migration/trigger/rollback, actual upload route plus SQLite fault injection,
+D1 migration/constraint guard/rollback, actual upload route plus SQLite fault injection,
 response-loss replay, concurrent duplicate, mismatch, overlap, separate agents,
 fresh observations, auth/limits and phone durable retry paths. This is not live
 fleet or Sites composite-quota acceptance.
