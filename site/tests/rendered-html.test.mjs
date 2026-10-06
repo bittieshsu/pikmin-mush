@@ -188,7 +188,7 @@ test("includes durable multi-agent leases, v2 protocol routes, and migrations", 
   assert.match(schema, /paused: integer\("paused"\)/);
   assert.match(fleet, /if \(agent\.paused\)/);
   assert.match(fleet, /rotation\.status !== "completed"/);
-  assert.match(control, /if \(agent\.paused\) return plain\("pause\\n"\)/);
+  assert.match(control, /if \(agent\.paused\) return reply\("pause"\)/);
   assert.match(verification, /replaceExisting/);
   assert.match(verification, /DELETE FROM scan_targets WHERE verification_batch=\?/);
   assert.match(agentAction, /"rotate-token", "revoke-old-token"/);

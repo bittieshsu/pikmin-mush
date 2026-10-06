@@ -472,14 +472,17 @@ export async function renewLease(
   jobId: number,
   targetId: number,
   leaseToken: string,
+  versions: ReturnType<typeof agentRequestVersions> = { version: "", gameVersion: "", moduleVersion: "" },
 ) {
   const db = runtime().DB;
   const now = Date.now();
   const result = await db.prepare(`UPDATE scan_targets SET lease_expires_at=?, updated_at=?
     WHERE id=? AND job_id=? AND status='leased' AND lease_agent_id=? AND lease_token=?`)
     .bind(now + LEASE_MS, now, targetId, jobId, agentId, leaseToken).run();
-  await touchAgent(agentId, { jobId, targetId });
-  return Boolean(result.meta.changes);
+  const renewed = Boolean(result.meta.changes);
+  // Invalid/stale leases must not overwrite the Agent's current assignment.
+  await touchAgent(agentId, { ...versions, ...(renewed ? { jobId, targetId } : {}) });
+  return renewed;
 }
 
 async function finalizeGiantRecheck(

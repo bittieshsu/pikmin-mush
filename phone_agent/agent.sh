@@ -52,6 +52,7 @@ if [ "$POWER_GUARD_ENABLED" = "1" ]; then
 fi
 
 POLL_SECONDS="${POLL_SECONDS:-2}"
+LEGACY_COMMAND_ENABLED="${LEGACY_COMMAND_ENABLED:-0}"
 MAP_REFRESH_EXPERIMENT="${MAP_REFRESH_EXPERIMENT:-0}"
 MAP_REFRESH_TIMEOUT_SECONDS="${MAP_REFRESH_TIMEOUT_SECONDS:-18}"
 MAP_REFRESH_SETTLE_SECONDS="${MAP_REFRESH_SETTLE_SECONDS:-3}"
@@ -1100,7 +1101,7 @@ while true; do
     continue
   fi
   upload_new
-  if [ "$AGENT_ID" = "primary" ]; then
+  if [ "$AGENT_ID" = "primary" ] && [ "$LEGACY_COMMAND_ENABLED" = "1" ]; then
     COMMAND="$(auth_curl "$SERVER_URL/api/agent/command?since=$LAST_SEQ" 2>/dev/null)"
     if [ -n "$COMMAND" ]; then
       OLD_IFS="$IFS"
