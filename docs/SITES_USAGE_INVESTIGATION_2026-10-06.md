@@ -88,6 +88,28 @@ mushrooms, not a count of all historical tables or their physical size.
 
 ## Remaining work and stop conditions
 
+### 2026-10-06 follow-up implementation (not production acceptance)
+
+PR129 is live as Sites v102, GitHub main `6de93aad`, release source
+`3c904e37ada8377090a5a6867d2e30748f239489`, deployment succeeded
+2026-10-06 06:35:00 UTC. Latest bounded sample 06:56:36–06:57:18 UTC:
+44 distinct requests, all 200 (control18/upload9/mushrooms8/ACK5/task4),
+no legacy command. This is neither a monthly error rate nor a quota attribution.
+
+The next independent changes implement opt-in receipts and phone immutable
+pending batches; see [UPLOAD_RECEIPTS.md](UPLOAD_RECEIPTS.md). The real local
+D1 transaction test plus route fault injection and full site suite passed
+92 tests. Phone receipt/chunk/power integration/legacy opt-in checks passed,
+lint passed, production audit zero vulnerabilities. An additional standalone
+`tsc --noEmit` check reports missing Worker binding declarations and broad
+strict-type errors; it is not recorded as a passing gate. Existing release
+gates are build/test/audit/CI; live receipt-path acceptance is still required.
+
+Receipts remain canary-only and are not expired until acknowledged-stream
+compaction can preserve offline retry safety. Measure their growth and the
+100-line chunk impact before fleet activation. Do not delete receipt history
+blindly as a usage fix. No production receipt upload was injected for tests.
+
 1. Reconcile the upload retry incident; implement an immutable persisted
    pending chunk and an authenticated receipt identity including stream
    generation and byte range. Plan transactional/recoverable server receipts,
