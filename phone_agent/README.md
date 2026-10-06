@@ -37,6 +37,10 @@ Android curl 不一定支援指定 DNS；程式會先驗證選項，不支援時
 5. 遊戲卡住時，Agent 以 Android shell SELinux context 重啟遊戲並驗證 PID。
 6. 網路失敗時不推進 offset；恢復後自動續傳及重送完成 ACK。
 
+Fleet v2 預設不呼叫舊 `/api/agent/command`。只有明確使用 legacy primary
+指令且憑證符合 legacy 接口的裝置才設 `LEGACY_COMMAND_ENABLED=1`；不把個別
+Agent token 的認證放寬成共用憑證。此開關不改變 v2 派工、暫停或 ACK。
+
 啟用 `MAP_REFRESH_EXPERIMENT=1` 後，每個掃描點不再盲等固定秒數，而是等待
 native hook 寫出的 map-query／map-object marker；2026-08-20 起預設改為
 `MAP_REFRESH_TIMEOUT_SECONDS=18`（Agent 2.2+）。舊版預設 `=0` 會讓 agent 完全
