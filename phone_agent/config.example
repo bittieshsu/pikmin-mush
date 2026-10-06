@@ -6,6 +6,9 @@ POLL_SECONDS='2'
 # Fleet v2 uses individual credentials. Enable only for an intentional legacy
 # primary deployment whose credential matches the legacy command endpoint.
 LEGACY_COMMAND_ENABLED='0'
+# Canary-only receipt upload protocol; install upload-receipts.sh before opt-in.
+# Pending batches drain through this protocol even after disabling the flag.
+UPLOAD_RECEIPTS_ENABLED='0'
 # Dedicated-device opt-in, deployed to Cancer first. Requires power-guard.sh.
 # Stops the game on severe heat, battery <=20%, sensor failure or plugged-in
 # depletion; preserves the task and resumes only after stable, cool charging.

@@ -6,6 +6,7 @@ import {
   agentRequestVersions, authorizeFleetAgent, touchAgent,
 } from "../../../../lib/fleet";
 import { recordAgentEvent } from "../../../../lib/metrics";
+import { receiveUpload } from "../../../../lib/upload-receipts";
 
 const MAX_UPLOAD_BYTES = 512_000;
 const MAX_PARTIAL_BYTES = 64_000;
@@ -15,6 +16,14 @@ export async function POST(request: Request) {
   const agent = await authorizeFleetAgent(request);
   if (!agent) return plain("unauthorized\n", 401);
   await ensureSchema();
+  if (request.headers.has("x-upload-protocol")) {
+    if (request.headers.get("x-upload-protocol") !== "receipt-v1") return plain("unsupported upload protocol\n",422);
+    const body = await readBoundedUtf8(request, MAX_UPLOAD_BYTES);
+    if (body.error) return plain(`${body.error}\n`,body.error === "payload too large" ? 413 : 400);
+    const response = await receiveUpload(request,agent,body.text,body.bytes,agentRequestVersions(request));
+    if (response.status === 200) scheduleRetentionEmergencyFallback();
+    return response;
+  }
   const db = runtime().DB;
   const state = await db.prepare(
     "SELECT partial_text FROM scan_agents WHERE id = ?",

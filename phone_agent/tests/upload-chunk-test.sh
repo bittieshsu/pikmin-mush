@@ -4,6 +4,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 TSV="$TMP/data"; CHUNK="$TMP/chunk"; RESPONSE="$TMP/response"
+MODDIR="$TMP"
 MAX_UPLOAD_CHUNK_BYTES=262144; OFFSET=0; SERVER_URL=http://unused
 save_offset() { OFFSET="$1"; }
 auth_curl() { printf '%s' "$HTTP"; }

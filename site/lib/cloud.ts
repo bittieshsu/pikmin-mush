@@ -619,6 +619,15 @@ export function parseTsv(text: string): MushroomRow[] {
 export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId = "", targetId: number | null = null) {
   const db = runtime().DB;
   const now = Math.floor(Date.now() / 1000);
+  const statements = mushroomUpsertStatements(db, rows, discoveredByAgentId, targetId, now);
+  for (let offset = 0; offset < statements.length; offset += 48) {
+    await db.batch(statements.slice(offset, offset + 48));
+  }
+}
+
+/** Callers may atomically batch these with a receipt and ingestion counters. */
+export function mushroomUpsertStatements(db: D1Database, rows: MushroomRow[],
+  discoveredByAgentId: string, targetId: number | null, now: number) {
   const usefulRows = rows.filter((row) => isUsefulMushroomLevel(row.level));
   const sql = `INSERT INTO mushrooms (
       id, lat, lng, level, type, cluster, cooldown, finish_ms,
@@ -671,7 +680,7 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
       start_ms=excluded.start_ms`;
   // Six rows per statement keep the 15-column snapshot below 100 bindings.
   // Flush 48 statements per batch: history must not quadruple network calls.
-  let statements: D1PreparedStatement[] = [];
+  const statements: D1PreparedStatement[] = [];
   for (let offset = 0; offset < usefulRows.length; offset += 6) {
     const chunk = usefulRows.slice(offset, offset + 6);
     const bulkSql = sql.replace(/VALUES \([^)]*\)/,
@@ -681,9 +690,8 @@ export async function upsertMushrooms(rows: MushroomRow[], discoveredByAgentId =
         row.cooldown, row.finish_ms, now, discoveredByAgentId, now, row.challenger_count,
         row.challenger_capacity, row.total_power, row.start_ms,
       ])), ...observationStatements(db, chunk, discoveredByAgentId, now, targetId));
-    if (statements.length >= 48) { await db.batch(statements); statements = []; }
   }
-  if (statements.length) await db.batch(statements);
+  return statements;
 }
 
 function retentionStatus(row: Record<string, unknown> | null | undefined): MushroomRetentionStatus {

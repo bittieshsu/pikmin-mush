@@ -265,8 +265,8 @@ guarded_startup_wait() {
 }
 
 save_offset() {
+  printf '%s\n' "$1" >"$OFFSET_FILE.new" && mv "$OFFSET_FILE.new" "$OFFSET_FILE" || return 1
   OFFSET="$1"
-  echo "$OFFSET" >"$OFFSET_FILE"
 }
 
 save_seq() {
@@ -285,6 +285,12 @@ ack() {
 }
 
 upload_new() {
+  if [ "${UPLOAD_RECEIPTS_ENABLED:-0}" = 1 ] || [ -d "$MODDIR/upload.pending" ]; then
+    [ -f "$MODDIR/upload-receipts.sh" ] || { echo '[agent] missing receipt uploader'; return 1; }
+    . "$MODDIR/upload-receipts.sh"
+    upload_receipt_new
+    return $?
+  fi
   [ -f "$TSV" ] || return 0
   SIZE="$(stat -c %s "$TSV" 2>/dev/null)"
   case "$SIZE" in ''|*[!0-9]*) return 0 ;; esac
